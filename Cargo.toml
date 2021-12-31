@@ -6,3 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+cranelift-codegen = "0.79.0"
+cranelift-module = "0.79.0"
+fnv = "1.0.7"
+relooper = "0.1.0"
+walrus = "0.19.0"
