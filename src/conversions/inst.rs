@@ -1,12 +1,9 @@
-use cranelift_codegen::{
-    cursor::FuncCursor,
-    ir::{self, Inst, InstructionData},
-};
+use cranelift_codegen::ir::{self, InstInserterBase, InstructionData};
 use fnv::FnvHashMap;
 use relooper::BranchMode;
-use walrus::InstrSeqBuilder;
+use walrus::{ir::BinaryOp, InstrSeqBuilder};
 
-use super::block::BlockCfCtx;
+use crate::{conversions::ty::wasm_of_cranelift, IndividualFunctionTranslator, Operand};
 
 /// Converts a Cranelift instruction into the corresponding WebAssembly.
 ///
@@ -14,44 +11,65 @@ use super::block::BlockCfCtx;
 /// that require a multithreaded environment are not translated) and (b) do not require any control
 /// flow (so jumps and branches are handled seperately).
 pub fn build_wasm_inst(
-    inst: &InstructionData,
-    cursor: &mut FuncCursor,
+    inst: InstructionData,
+    t: &mut IndividualFunctionTranslator<'_>,
     builder: &mut InstrSeqBuilder,
-    ctx: &mut BlockCfCtx<'_>,
+    can_branch_to: &FnvHashMap<u32, BranchMode>,
 ) {
     match inst {
         // operations that are unsupportable on WebAssembly
         ir::InstructionData::AtomicCas { .. } | ir::InstructionData::AtomicRmw { .. } => {
             panic!("this operation is not supported on WebAssembly")
         }
-        ir::InstructionData::Jump {
-            opcode: _,
-            args: _,
-            destination,
-        } => {
-            // work out if we can jump to this item
-            let mode = if let Some(mode) = ctx.can_branch_to.get(&destination.as_u32()) {
-                mode
-            } else {
-                // (hopefully)
-                // todo: fuzzing with Fuzzcheck
-                unreachable!()
-            };
+        ir::InstructionData::Binary { opcode, args } => {
+            for operand in args {
+                match Operand::from_table(operand, &t.operand_table) {
+                    Operand::SingleUse(val) => {
+                        let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
+                        let def = t.cursor.data_flow_graph()[def].clone();
+                        build_wasm_inst(def, t, builder, can_branch_to);
+                    }
+                    Operand::NormalUse(val) => {
+                        if let Some(local) = t.locals.get(&val) {
+                            builder.local_get(*local);
+                        } else {
+                            let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
+                            let def = t.cursor.data_flow_graph()[def].clone();
+                            build_wasm_inst(def, t, builder, can_branch_to);
 
-            match mode {
-                BranchMode::LoopBreak(_) => builder.br(todo!()),
-                BranchMode::LoopBreakIntoMulti(_)
-                | BranchMode::LoopContinue(_)
-                | BranchMode::LoopContinueIntoMulti(_)
-                | BranchMode::MergedBranch
-                | BranchMode::MergedBranchIntoMulti
-                | BranchMode::SetLabelAndBreak => todo!(),
-            };
+                            let arg = t.module.locals.add({
+                                let ty = t.cursor.data_flow_graph().value_type(val);
+                                wasm_of_cranelift(ty)
+                            });
+
+                            builder.local_set(arg);
+                        }
+                    }
+                    Operand::Rematerialise(val) => {
+                        let def_inst = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
+                        let def = t.cursor.data_flow_graph()[def_inst].clone();
+                        build_wasm_inst(def, t, builder, can_branch_to);
+                    }
+                }
+            }
+            match opcode {
+                ir::Opcode::Iadd => {
+                    let [left, _] = args;
+                    let ty = t.cursor.data_flow_graph().value_type(left);
+                    if ty == ir::types::I32 {
+                        builder.binop(BinaryOp::I32Add);
+                    } else if ty == ir::types::I64 {
+                        builder.binop(BinaryOp::I64Add);
+                    } else {
+                        // todo: it's not unreachable yet!
+                        unreachable!()
+                    }
+                }
+                _ => todo!(),
+            }
         }
-        // control flow operations
         // operations that have not yet been implemented
-        ir::InstructionData::Binary { .. }
-        | ir::InstructionData::BinaryImm64 { .. }
+        ir::InstructionData::BinaryImm64 { .. }
         | ir::InstructionData::BinaryImm8 { .. }
         | ir::InstructionData::Branch { .. }
         | ir::InstructionData::BranchIcmp { .. }
@@ -94,6 +112,9 @@ pub fn build_wasm_inst(
         | ir::InstructionData::UnaryIeee64 { .. }
         | ir::InstructionData::UnaryImm { .. } => {
             panic!("this operation is not yet supported")
+        }
+        ir::InstructionData::Jump { .. } => {
+            unreachable!("this operation should already have been handled")
         }
     }
 }
