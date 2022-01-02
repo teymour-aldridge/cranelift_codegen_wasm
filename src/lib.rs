@@ -34,10 +34,14 @@ pub struct WasmModule {
     config: ModuleConfig,
     #[allow(unused)]
     memory_id: MemoryId,
+    isa: Box<dyn TargetIsa>,
 }
 
 impl WasmModule {
-    pub fn new(config: ModuleConfig) -> Self {
+    /// Constructs a new WebAssembly module.
+    ///
+    /// todo: check the target isa (or maybe don't take it as a parameter, and generate it instead)
+    pub fn new(config: ModuleConfig, isa: Box<dyn TargetIsa>) -> Self {
         let mut module = WalrusModule::default();
 
         let memory_id = module.memories.add_local(false, 1000, None);
@@ -47,14 +51,14 @@ impl WasmModule {
             module,
             config,
             memory_id,
+            isa,
         }
     }
 }
 
 impl CraneliftModule for WasmModule {
     fn isa(&self) -> &dyn TargetIsa {
-        // unimplemented
-        todo!()
+        &*self.isa
     }
 
     fn declarations(&self) -> &ModuleDeclarations {
