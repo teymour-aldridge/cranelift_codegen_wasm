@@ -37,7 +37,7 @@ pub fn build_wasm_inst(
                             let def = t.cursor.data_flow_graph()[def].clone();
                             build_wasm_inst(def, t, builder, can_branch_to);
 
-                            let arg = t.module.locals.add({
+                            let arg = t.module_locals.add({
                                 let ty = t.cursor.data_flow_graph().value_type(val);
                                 wasm_of_cranelift(ty)
                             });

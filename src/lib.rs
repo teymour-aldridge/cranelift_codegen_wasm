@@ -18,7 +18,7 @@ use relooper::{reloop, ShapedBlock};
 use walrus::{
     ir::{BinaryOp, InstrSeqId},
     DataKind, FunctionBuilder, InstrSeqBuilder, LocalFunction, LocalId, MemoryId,
-    Module as WalrusModule, ModuleConfig, ValType,
+    Module as WalrusModule, ModuleConfig, ModuleLocals, ValType,
 };
 
 use crate::conversions::{block::build_wasm_block, sig::wasm_of_sig};
@@ -37,10 +37,8 @@ pub struct WasmModule {
     isa: Box<dyn TargetIsa>,
     /// Maps Cranelift functions to Walrus functions.
     functions: FnvHashMap<FuncId, walrus::FunctionId>,
-    anon_func_number: usize,
     /// Maps Cranelift data items to Walrus data items.
     data: FnvHashMap<DataId, walrus::DataId>,
-    anon_data_number: usize,
 }
 
 impl WasmModule {
@@ -68,10 +66,8 @@ impl WasmModule {
             config,
             memory_id,
             isa,
-            anon_data_number: 0,
             functions: Default::default(),
             data: Default::default(),
-            anon_func_number: 0,
         }
     }
 }
@@ -91,9 +87,22 @@ impl CraneliftModule for WasmModule {
         linkage: Linkage,
         signature: &ir::Signature,
     ) -> ModuleResult<FuncId> {
-        self.decls
-            .declare_function(name, linkage, signature)
-            .map(|(a, _)| a)
+        let (clif_id, _) = self.decls.declare_function(name, linkage, signature)?;
+
+        let (params, ret) = wasm_of_sig(signature.clone());
+
+        match linkage {
+            Linkage::Import => todo!(),
+            Linkage::Local => {
+                let local = FunctionBuilder::new(&mut self.module.types, &params, &ret)
+                    .finish(vec![], &mut self.module.funcs);
+                self.functions.insert(clif_id, local);
+            }
+            Linkage::Preemptible | Linkage::Hidden => unimplemented!(),
+            Linkage::Export => todo!(),
+        }
+
+        Ok(clif_id)
     }
 
     fn declare_anonymous_function(&mut self, signature: &ir::Signature) -> ModuleResult<FuncId> {
@@ -111,7 +120,6 @@ impl CraneliftModule for WasmModule {
     }
 
     fn declare_anonymous_data(&mut self, writable: bool, tls: bool) -> ModuleResult<DataId> {
-        self.anon_data_number += 1;
         let clif_data_id = self.decls.declare_anonymous_data(writable, tls)?;
         let walrus_data_id = self.module.data.add(DataKind::Passive, Vec::new());
         self.data.insert(clif_data_id, walrus_data_id);
@@ -120,15 +128,23 @@ impl CraneliftModule for WasmModule {
 
     fn define_function(
         &mut self,
-        _func: FuncId,
+        func_id: FuncId,
         ctx: &mut Context,
         _trap_sink: &mut dyn binemit::TrapSink,
         _stack_map_sink: &mut dyn binemit::StackMapSink,
     ) -> ModuleResult<ModuleCompiledFunction> {
-        // set up WebAssembly function
-        let (params, returns) = wasm_of_sig(ctx.func.signature.clone());
-        let mut wasm_func = FunctionBuilder::new(&mut self.module.types, &params, &returns);
-        let mut body = wasm_func.func_body();
+        let id = self
+            .functions
+            .get(&func_id)
+            .expect("function declared but never defined!");
+
+        // retrieve WebAssembly function
+        let func = self.module.funcs.get_mut(*id);
+        let mut builder = match func.kind {
+            walrus::FunctionKind::Import(_) => unreachable!(),
+            walrus::FunctionKind::Local(ref mut loc) => loc.builder_mut().func_body(),
+            walrus::FunctionKind::Uninitialized(_) => unreachable!(),
+        };
 
         // set up Cranelift
         let mut cursor = FuncCursor::new(&mut ctx.func);
@@ -175,7 +191,7 @@ impl CraneliftModule for WasmModule {
         let mut locals = Default::default();
 
         let mut translator = IndividualFunctionTranslator::new(
-            &mut self.module,
+            &mut self.module.locals,
             &mut cursor,
             &mut block_to_seq,
             &mut loop_to_block,
@@ -184,7 +200,7 @@ impl CraneliftModule for WasmModule {
             &mut locals,
         );
 
-        translator.compile_structured(&mut body, &structured);
+        translator.compile_structured(&mut builder, &structured);
 
         Ok(ModuleCompiledFunction {
             // todo: compute size correctly
@@ -224,7 +240,7 @@ impl CraneliftModule for WasmModule {
 /// todo: sort out visiblity rules
 pub struct IndividualFunctionTranslator<'clif> {
     /// The Walrus module to which we are emitting WebAssembly.
-    module: &'clif mut WalrusModule,
+    module_locals: &'clif mut ModuleLocals,
     /// The cursor which we are using to query useful relevant information from Cranelift about the
     /// nature of the IR with which we are being provided.
     cursor: &'clif mut FuncCursor<'clif>,
@@ -242,7 +258,7 @@ pub struct IndividualFunctionTranslator<'clif> {
 
 impl<'clif> IndividualFunctionTranslator<'clif> {
     fn new(
-        module: &'clif mut WalrusModule,
+        module: &'clif mut ModuleLocals,
         cursor: &'clif mut FuncCursor<'clif>,
         block_to_seq: &'clif mut FnvHashMap<Block, InstrSeqId>,
         loop_to_block: &'clif mut FnvHashMap<u16, InstrSeqId>,
@@ -251,7 +267,7 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
         locals: &'clif mut FnvHashMap<ir::Value, LocalId>,
     ) -> Self {
         Self {
-            module,
+            module_locals: module,
             cursor,
             block_to_seq,
             loop_to_block,
@@ -291,7 +307,7 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
                 // note: `HandledBlock::break_after` means "can this entry reach another entry"
 
                 // we create a local storing the label
-                let label = self.module.locals.add(ValType::I32);
+                let label = self.module_locals.add(ValType::I32);
                 let current_val = self.current_label.clone();
                 self.current_label = Some(label);
                 // todo: this might panic – handle that case better
