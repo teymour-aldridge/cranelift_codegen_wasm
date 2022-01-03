@@ -48,6 +48,16 @@ impl WasmModule {
     ///
     /// todo: check the target isa (or maybe don't take it as a parameter, and generate it instead)
     pub fn new(config: ModuleConfig, isa: Box<dyn TargetIsa>) -> Self {
+        if !matches!(
+            isa.triple().binary_format,
+            target_lexicon::BinaryFormat::Wasm
+        ) {
+            panic!(
+                "only WebAssembly is supported! for other targets, you may want to look at
+            `cranelift_object`."
+            )
+        }
+
         let mut module = WalrusModule::default();
 
         let memory_id = module.memories.add_local(false, 1000, None);
