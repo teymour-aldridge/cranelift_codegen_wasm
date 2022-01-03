@@ -2,6 +2,8 @@
 
 mod conversions;
 
+use std::path::Path;
+
 use cranelift_codegen::{
     binemit,
     cursor::{Cursor, FuncCursor},
@@ -75,6 +77,13 @@ impl WasmModule {
     /// WebAssembly module).
     pub fn emit(&mut self) -> Vec<u8> {
         self.module.emit_wasm()
+    }
+
+    /// Renders the current module as a graphviz dot file.
+    pub fn render_graphviz(&self, path: impl AsRef<Path>) {
+        self.module
+            .write_graphviz_dot(path)
+            .expect("failed to write graphviz file");
     }
 }
 
