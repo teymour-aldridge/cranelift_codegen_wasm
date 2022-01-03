@@ -17,8 +17,8 @@ use fnv::{FnvHashMap, FnvHashSet};
 use relooper::{reloop, ShapedBlock};
 use walrus::{
     ir::{BinaryOp, InstrSeqId},
-    FunctionBuilder, InstrSeqBuilder, LocalId, MemoryId, Module as WalrusModule, ModuleConfig,
-    ValType,
+    DataKind, FunctionBuilder, InstrSeqBuilder, LocalFunction, LocalId, MemoryId,
+    Module as WalrusModule, ModuleConfig, ValType,
 };
 
 use crate::conversions::{block::build_wasm_block, sig::wasm_of_sig};
@@ -35,6 +35,12 @@ pub struct WasmModule {
     #[allow(unused)]
     memory_id: MemoryId,
     isa: Box<dyn TargetIsa>,
+    /// Maps Cranelift functions to Walrus functions.
+    functions: FnvHashMap<FuncId, walrus::FunctionId>,
+    anon_func_number: usize,
+    /// Maps Cranelift data items to Walrus data items.
+    data: FnvHashMap<DataId, walrus::DataId>,
+    anon_data_number: usize,
 }
 
 impl WasmModule {
@@ -52,6 +58,10 @@ impl WasmModule {
             config,
             memory_id,
             isa,
+            anon_data_number: 0,
+            functions: Default::default(),
+            data: Default::default(),
+            anon_func_number: 0,
         }
     }
 }
@@ -90,8 +100,12 @@ impl CraneliftModule for WasmModule {
         self.decls.declare_anonymous_data(writable, tls)
     }
 
-    fn declare_anonymous_data(&mut self, _writable: bool, _tls: bool) -> ModuleResult<DataId> {
-        todo!()
+    fn declare_anonymous_data(&mut self, writable: bool, tls: bool) -> ModuleResult<DataId> {
+        self.anon_data_number += 1;
+        let clif_data_id = self.decls.declare_anonymous_data(writable, tls)?;
+        let walrus_data_id = self.module.data.add(DataKind::Passive, Vec::new());
+        self.data.insert(clif_data_id, walrus_data_id);
+        Ok(clif_data_id)
     }
 
     fn define_function(
@@ -177,8 +191,21 @@ impl CraneliftModule for WasmModule {
         todo!()
     }
 
-    fn define_data(&mut self, _data: DataId, _data_ctx: &DataContext) -> ModuleResult<()> {
-        todo!()
+    fn define_data(&mut self, data: DataId, data_ctx: &DataContext) -> ModuleResult<()> {
+        let walrus_id = self.data.get(&data).unwrap();
+        let data = self.module.data.get_mut(*walrus_id);
+
+        let desc = data_ctx.description();
+
+        match &desc.init {
+            cranelift_module::Init::Uninitialized => todo!(),
+            cranelift_module::Init::Zeros { size } => {
+                data.value = vec![0; *size];
+            }
+            cranelift_module::Init::Bytes { contents } => data.value = contents.to_vec(),
+        }
+
+        Ok(())
     }
 }
 
