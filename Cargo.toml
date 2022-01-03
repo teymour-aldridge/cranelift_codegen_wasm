@@ -1,5 +1,5 @@
 [package]
-name = "cranelift_wasm"
+name = "cranelift_codegen_wasm"
 version = "0.1.0"
 edition = "2021"
 
