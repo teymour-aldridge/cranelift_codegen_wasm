@@ -17,8 +17,8 @@ use fnv::{FnvHashMap, FnvHashSet};
 use relooper::{reloop, ShapedBlock};
 use walrus::{
     ir::{BinaryOp, InstrSeqId},
-    DataKind, FunctionBuilder, InstrSeqBuilder, LocalFunction, LocalId, MemoryId,
-    Module as WalrusModule, ModuleConfig, ModuleLocals, ValType,
+    DataKind, FunctionBuilder, InstrSeqBuilder, LocalId, MemoryId, Module as WalrusModule,
+    ModuleConfig, ModuleLocals, ValType,
 };
 
 use crate::conversions::{block::build_wasm_block, sig::wasm_of_sig};
@@ -69,6 +69,12 @@ impl WasmModule {
             functions: Default::default(),
             data: Default::default(),
         }
+    }
+
+    /// Emit the module as it stands as a series of bytes (which can be interpreted as a
+    /// WebAssembly module).
+    pub fn emit(&mut self) -> Vec<u8> {
+        self.module.emit_wasm()
     }
 }
 
