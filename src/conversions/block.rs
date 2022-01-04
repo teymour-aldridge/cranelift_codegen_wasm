@@ -51,7 +51,7 @@ pub(crate) fn build_wasm_block<'clif>(
             }
             // todo: handle some other control-flow operations
             // everything else is handled by `build_wasm_inst`
-            data => build_wasm_inst(data.clone(), t, builder, can_branch_to),
+            _ => build_wasm_inst(next, t, builder, can_branch_to),
         }
     }
 }

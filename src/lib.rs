@@ -1,5 +1,8 @@
 //! A WebAssembly module for Cranelift.
 
+#[cfg(test)]
+mod tests;
+
 mod conversions;
 
 use std::path::Path;
@@ -17,6 +20,7 @@ use cranelift_module::{
 };
 use fnv::{FnvHashMap, FnvHashSet};
 use relooper::{reloop, ShapedBlock};
+use wabt::wasm2wat;
 use walrus::{
     ir::{BinaryOp, InstrSeqId},
     DataKind, FunctionBuilder, InstrSeqBuilder, LocalId, MemoryId, Module as WalrusModule,
@@ -48,15 +52,15 @@ impl WasmModule {
     ///
     /// todo: check the target isa (or maybe don't take it as a parameter, and generate it instead)
     pub fn new(config: ModuleConfig, isa: Box<dyn TargetIsa>) -> Self {
-        if !matches!(
-            isa.triple().binary_format,
-            target_lexicon::BinaryFormat::Wasm
-        ) {
-            panic!(
-                "only WebAssembly is supported! for other targets, you may want to look at
-            `cranelift_object`."
-            )
-        }
+        // if !matches!(
+        //     isa.triple().binary_format,
+        //     target_lexicon::BinaryFormat::Wasm
+        // ) {
+        //     panic!(
+        //         "only WebAssembly is supported! for other targets, you may want to look at
+        //     `cranelift_object`."
+        //     )
+        // }
 
         let mut module = WalrusModule::default();
 
@@ -77,6 +81,11 @@ impl WasmModule {
     /// WebAssembly module).
     pub fn emit(&mut self) -> Vec<u8> {
         self.module.emit_wasm()
+    }
+
+    pub fn emit_wat(&mut self) -> String {
+        let wasm = self.emit();
+        wasm2wat(&wasm).unwrap()
     }
 
     /// Renders the current module as a graphviz dot file.
@@ -109,12 +118,21 @@ impl CraneliftModule for WasmModule {
         match linkage {
             Linkage::Import => todo!(),
             Linkage::Local => {
-                let local = FunctionBuilder::new(&mut self.module.types, &params, &ret)
-                    .finish(vec![], &mut self.module.funcs);
+                let mut builder = FunctionBuilder::new(&mut self.module.types, &params, &ret);
+                builder.name(name.to_string());
+                // todo: handle args
+                let local = builder.finish(vec![], &mut self.module.funcs);
                 self.functions.insert(clif_id, local);
             }
             Linkage::Preemptible | Linkage::Hidden => unimplemented!(),
-            Linkage::Export => todo!(),
+            Linkage::Export => {
+                let mut builder = FunctionBuilder::new(&mut self.module.types, &params, &ret);
+                builder.name(name.to_string());
+                // todo: handle args
+                let local = builder.finish(vec![], &mut self.module.funcs);
+                self.functions.insert(clif_id, local);
+                self.module.exports.add(name, local);
+            },
         }
 
         Ok(clif_id)

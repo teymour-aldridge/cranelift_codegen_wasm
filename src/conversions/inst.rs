@@ -1,4 +1,4 @@
-use cranelift_codegen::ir::{self, InstInserterBase, InstructionData};
+use cranelift_codegen::ir::{self, InstInserterBase};
 use fnv::FnvHashMap;
 use relooper::BranchMode;
 use walrus::{ir::BinaryOp, InstrSeqBuilder};
@@ -11,51 +11,24 @@ use crate::{conversions::ty::wasm_of_cranelift, IndividualFunctionTranslator, Op
 /// that require a multithreaded environment are not translated) and (b) do not require any control
 /// flow (so jumps and branches are handled seperately).
 pub fn build_wasm_inst(
-    inst: InstructionData,
+    inst: ir::Inst,
     t: &mut IndividualFunctionTranslator<'_>,
     builder: &mut InstrSeqBuilder,
     can_branch_to: &FnvHashMap<u32, BranchMode>,
 ) {
-    match inst {
+    match &t.cursor.func.dfg[inst].clone() {
         // operations that are unsupportable on WebAssembly
         ir::InstructionData::AtomicCas { .. } | ir::InstructionData::AtomicRmw { .. } => {
             panic!("this operation is not supported on WebAssembly")
         }
         ir::InstructionData::Binary { opcode, args } => {
             for operand in args {
-                match Operand::from_table(operand, &t.operand_table) {
-                    Operand::SingleUse(val) => {
-                        let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
-                        let def = t.cursor.data_flow_graph()[def].clone();
-                        build_wasm_inst(def, t, builder, can_branch_to);
-                    }
-                    Operand::NormalUse(val) => {
-                        if let Some(local) = t.locals.get(&val) {
-                            builder.local_get(*local);
-                        } else {
-                            let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
-                            let def = t.cursor.data_flow_graph()[def].clone();
-                            build_wasm_inst(def, t, builder, can_branch_to);
-
-                            let arg = t.module_locals.add({
-                                let ty = t.cursor.data_flow_graph().value_type(val);
-                                wasm_of_cranelift(ty)
-                            });
-
-                            builder.local_set(arg);
-                        }
-                    }
-                    Operand::Rematerialise(val) => {
-                        let def_inst = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
-                        let def = t.cursor.data_flow_graph()[def_inst].clone();
-                        build_wasm_inst(def, t, builder, can_branch_to);
-                    }
-                }
+                translate_value(*operand, t, builder, can_branch_to);
             }
             match opcode {
                 ir::Opcode::Iadd => {
                     let [left, _] = args;
-                    let ty = t.cursor.data_flow_graph().value_type(left);
+                    let ty = t.cursor.data_flow_graph().value_type(*left);
                     if ty == ir::types::I32 {
                         builder.binop(BinaryOp::I32Add);
                     } else if ty == ir::types::I64 {
@@ -66,6 +39,35 @@ pub fn build_wasm_inst(
                     }
                 }
                 _ => todo!(),
+            }
+        }
+        ir::InstructionData::UnaryImm { opcode, imm } => {
+            if opcode == &ir::Opcode::Iconst {
+                if t.cursor.data_flow_graph().has_results(inst) {
+                    let val = t.cursor.data_flow_graph().inst_results(inst)[0];
+                    let ty = t.cursor.data_flow_graph().value_type(val);
+                    assert!(ty.is_int());
+                    if ty.bits() == 64 {
+                        builder.i64_const(imm.bits());
+                        return;
+                    } else if ty.bits() == 32 {
+                        builder.i32_const(imm.bits() as i32);
+                        return;
+                    }
+                }
+                builder.i64_const(imm.bits());
+            } else {
+                panic!("this operation is not yet supported")
+            }
+        }
+        ir::InstructionData::MultiAry { opcode, args } => {
+            if opcode == &ir::Opcode::Return {
+                let pool = &t.cursor.data_flow_graph().value_lists;
+                let args = args.as_slice(pool).iter().map(|x| *x).collect::<Vec<_>>();
+                for arg in args {
+                    translate_value(arg, t, builder, can_branch_to);
+                }
+                builder.return_();
             }
         }
         // operations that have not yet been implemented
@@ -92,7 +94,6 @@ pub fn build_wasm_inst(
         | ir::InstructionData::Load { .. }
         | ir::InstructionData::LoadComplex { .. }
         | ir::InstructionData::LoadNoOffset { .. }
-        | ir::InstructionData::MultiAry { .. }
         | ir::InstructionData::NullAry { .. }
         | ir::InstructionData::Shuffle { .. }
         | ir::InstructionData::StackLoad { .. }
@@ -109,12 +110,43 @@ pub fn build_wasm_inst(
         | ir::InstructionData::UnaryConst { .. }
         | ir::InstructionData::UnaryGlobalValue { .. }
         | ir::InstructionData::UnaryIeee32 { .. }
-        | ir::InstructionData::UnaryIeee64 { .. }
-        | ir::InstructionData::UnaryImm { .. } => {
+        | ir::InstructionData::UnaryIeee64 { .. } => {
             panic!("this operation is not yet supported")
         }
         ir::InstructionData::Jump { .. } => {
             unreachable!("this operation should already have been handled")
+        }
+    }
+}
+fn translate_value(
+    operand: ir::Value,
+    t: &mut IndividualFunctionTranslator<'_>,
+    builder: &mut InstrSeqBuilder,
+    can_branch_to: &FnvHashMap<u32, BranchMode>,
+) {
+    match Operand::from_table(operand, &t.operand_table) {
+        Operand::SingleUse(val) => {
+            let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
+            build_wasm_inst(def, t, builder, can_branch_to);
+        }
+        Operand::NormalUse(val) => {
+            if let Some(local) = t.locals.get(&val) {
+                builder.local_get(*local);
+            } else {
+                let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
+                build_wasm_inst(def, t, builder, can_branch_to);
+
+                let arg = t.module_locals.add({
+                    let ty = t.cursor.data_flow_graph().value_type(val);
+                    wasm_of_cranelift(ty)
+                });
+
+                builder.local_set(arg);
+            }
+        }
+        Operand::Rematerialise(val) => {
+            let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
+            build_wasm_inst(def, t, builder, can_branch_to);
         }
     }
 }
