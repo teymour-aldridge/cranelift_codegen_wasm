@@ -132,7 +132,7 @@ impl CraneliftModule for WasmModule {
                 let local = builder.finish(vec![], &mut self.module.funcs);
                 self.functions.insert(clif_id, local);
                 self.module.exports.add(name, local);
-            },
+            }
         }
 
         Ok(clif_id)
