@@ -122,6 +122,7 @@ fn build_from_pos(
                         BranchMode::LoopBreak(id) => {
                             let seq_id = t.loop_to_block.get(id).unwrap();
                             builder.br_if(*seq_id);
+                            return;
                         }
                         BranchMode::LoopBreakIntoMulti(_) => todo!(),
                         BranchMode::LoopContinue(_) => todo!(),
