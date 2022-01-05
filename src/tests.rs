@@ -228,16 +228,20 @@ fn test_from_file<Params: WasmParams, Return: WasmResults + std::fmt::Debug + Cl
 
 #[test]
 fn test_simple_from_file() {
-    test_from_file((12, 13), "src/filetests/simple.clif", |out: i32| {
-        out == 12 + 13
-    })
+    test_from_file(
+        (12, 13),
+        "src/filetests/wasmtime/simple.clif",
+        |out: i32| out == 12 + 13,
+    )
 }
 
 #[test]
 fn test_branching_from_file() {
-    test_from_file((0, 13), "src/filetests/branching.clif", |out: i32| {
-        out == 84
-    })
+    test_from_file(
+        (0, 13),
+        "src/filetests/wasmtime/branching.clif",
+        |out: i32| out == 84,
+    )
 }
 
 #[test]
@@ -250,7 +254,9 @@ fn test_fibonacci_from_file() {
     }
 
     for i in 1..20 {
-        test_from_file(i, "src/filetests/fib.clif", |out: i32| out == fib(i));
+        test_from_file(i, "src/filetests/wasmtime/fib.clif", |out: i32| {
+            out == fib(i)
+        });
     }
 }
 
