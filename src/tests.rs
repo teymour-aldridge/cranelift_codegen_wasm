@@ -1,14 +1,12 @@
-use std::str::FromStr;
-
 use cranelift_codegen::{
     binemit::{NullStackMapSink, NullTrapSink},
     ir::{self, condcodes::IntCC, AbiParam, InstBuilder},
     isa::CallConv,
-    settings, Context,
+    Context,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::Module;
-use target_lexicon::triple;
+
 use walrus::ModuleConfig;
 use wasmtime::{Engine, Instance, Store, WasmParams, WasmResults};
 
@@ -20,15 +18,8 @@ fn run_test<Params: WasmParams, Return: WasmResults + std::fmt::Debug + Clone>(
     build: impl FnOnce(&mut FunctionBuilder),
     check: impl FnOnce(Return) -> bool,
 ) {
-    let builder = settings::builder();
-    let shared_flags = settings::Flags::new(builder);
     // todo: correct target isa
-    let mut module = WasmModule::new(
-        ModuleConfig::new(),
-        cranelift_codegen::isa::lookup(triple!("x86_64"))
-            .unwrap()
-            .finish(shared_flags),
-    );
+    let mut module = WasmModule::new(ModuleConfig::new());
 
     let func_id = module
         .declare_function("func_name", cranelift_module::Linkage::Export, &sig)

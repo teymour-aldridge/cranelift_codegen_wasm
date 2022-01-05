@@ -44,7 +44,6 @@ pub struct WasmModule {
     config: ModuleConfig,
     #[allow(unused)]
     memory_id: MemoryId,
-    isa: Box<dyn TargetIsa>,
     /// Maps Cranelift functions to Walrus functions.
     functions: FnvHashMap<FuncId, walrus::FunctionId>,
     /// Maps Cranelift data items to Walrus data items.
@@ -55,7 +54,7 @@ impl WasmModule {
     /// Constructs a new WebAssembly module.
     ///
     /// todo: check the target isa (or maybe don't take it as a parameter, and generate it instead)
-    pub fn new(config: ModuleConfig, isa: Box<dyn TargetIsa>) -> Self {
+    pub fn new(config: ModuleConfig) -> Self {
         // if !matches!(
         //     isa.triple().binary_format,
         //     target_lexicon::BinaryFormat::Wasm
@@ -75,7 +74,6 @@ impl WasmModule {
             module,
             config,
             memory_id,
-            isa,
             functions: Default::default(),
             data: Default::default(),
         }
@@ -102,7 +100,7 @@ impl WasmModule {
 
 impl CraneliftModule for WasmModule {
     fn isa(&self) -> &dyn TargetIsa {
-        &*self.isa
+        panic!("the WebAssembly ISA still needs to be defined");
     }
 
     fn declarations(&self) -> &ModuleDeclarations {
