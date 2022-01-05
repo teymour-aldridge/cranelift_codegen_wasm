@@ -284,7 +284,7 @@ pub struct IndividualFunctionTranslator<'clif> {
     // todo: is this one even needed?
     #[allow(unused)]
     block_to_seq: &'clif mut FnvHashMap<Block, InstrSeqId>,
-    #[allow(unused)]
+    /// stores the `InstrSeqId`s that loops correspond to.
     loop_to_block: &'clif mut FnvHashMap<u16, InstrSeqId>,
     #[allow(unused)]
     multi_to_block: &'clif mut FnvHashMap<u16, InstrSeqId>,

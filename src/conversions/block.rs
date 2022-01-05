@@ -1,10 +1,10 @@
 use cranelift_codegen::{
     cursor::Cursor,
-    ir::{self, InstructionData},
+    ir::{self, InstInserterBase, InstructionData},
 };
 use fnv::FnvHashMap;
 use relooper::BranchMode;
-use walrus::{InstrSeqBuilder, LocalId};
+use walrus::{ir::BinaryOp, InstrSeqBuilder, LocalId};
 
 use crate::IndividualFunctionTranslator;
 
@@ -15,6 +15,7 @@ pub struct CanBranchTo<'a> {
     pub(crate) locally_computed: FnvHashMap<u32, BranchInstr>,
 }
 
+#[derive(Debug)]
 pub enum BranchInstr {
     SetLocal(LocalId),
 }
@@ -95,30 +96,80 @@ fn build_from_pos(
                 args,
                 destination,
             } => {
+                // first we compute the condition
+                let arg = args.as_slice(&t.cursor.func.dfg.value_lists)[0];
+                translate_value(arg, t, builder, can_branch_to, next);
+
+                if opcode == &ir::Opcode::Brnz {
+                    let ty = t.cursor.data_flow_graph().value_type(arg);
+                    if ty.bits() == 64 {
+                        builder.i64_const(0);
+                        builder.binop(BinaryOp::I64Ne);
+                    } else if ty.bits() <= 32
+                    /* less than or equal because we could have a boolean */
+                    {
+                        builder.i32_const(0);
+                        builder.binop(BinaryOp::I32Ne);
+                    } else {
+                        unreachable!();
+                    };
+                }
+
+                // now work out how we are supposed to branch to the next instruction and apply it
+
+                if let Some(mode) = can_branch_to.from_relooper.get(&destination.as_u32()) {
+                    match mode {
+                        BranchMode::LoopBreak(id) => {
+                            let seq_id = t.loop_to_block.get(id).unwrap();
+                            builder.br_if(*seq_id);
+                        }
+                        BranchMode::LoopBreakIntoMulti(_) => todo!(),
+                        BranchMode::LoopContinue(_) => todo!(),
+                        BranchMode::LoopContinueIntoMulti(_) => todo!(),
+                        BranchMode::MergedBranch => todo!(),
+                        BranchMode::MergedBranchIntoMulti => todo!(),
+                        BranchMode::SetLabelAndBreak => todo!(),
+                    }
+                }
+
+                // otherwise, try switching into a multiple block
+
+                // we computed this earlier
+                let method = can_branch_to
+                    .locally_computed
+                    .get(&destination.as_u32())
+                    .unwrap();
+                // todo: this is not correct – fix it
+                if let Some(jump_to) = t.operand_table.block_params.get(destination) {
+                    let args = args
+                        .as_slice(&t.cursor.func.dfg.value_lists)
+                        .iter()
+                        .map(|x| *x)
+                        .clone()
+                        .collect::<Vec<_>>();
+                    for (value, (_, local)) in args.iter().zip(jump_to.iter()) {
+                        translate_value(*value, t, builder, can_branch_to, next);
+                        builder.local_set(*local);
+                    }
+                }
                 if opcode == &ir::Opcode::Brz {
-                    let arg = args.as_slice(&t.cursor.func.dfg.value_lists)[0];
-                    translate_value(arg, t, builder, can_branch_to, next);
-
-                    let method = can_branch_to
-                        .locally_computed
-                        .get(&destination.as_u32())
-                        .unwrap();
-
                     match method {
                         BranchInstr::SetLocal(label) => {
-                            if let Some(jump_to) = t.operand_table.block_params.get(destination) {
-                                let args = args
-                                    .as_slice(&t.cursor.func.dfg.value_lists)
-                                    .iter()
-                                    .map(|x| *x)
-                                    .clone()
-                                    .collect::<Vec<_>>();
-                                for (value, (_, local)) in args.iter().zip(jump_to.iter()) {
-                                    translate_value(*value, t, builder, can_branch_to, next);
-                                    builder.local_set(*local);
-                                }
-                            }
-
+                            builder.if_else(
+                                None,
+                                |then| {
+                                    then.i32_const(destination.as_u32() as i32)
+                                        .local_set(*label);
+                                },
+                                |alt| {
+                                    build_from_pos(t, alt, can_branch_to);
+                                },
+                            );
+                        }
+                    }
+                } else if opcode == &ir::Opcode::Brnz {
+                    match method {
+                        BranchInstr::SetLocal(label) => {
                             builder.if_else(
                                 None,
                                 |then| {
@@ -132,7 +183,7 @@ fn build_from_pos(
                         }
                     }
                 } else {
-                    panic!("operation not yet supported")
+                    panic!("operation {:#?} not yet supported", opcode)
                 }
             }
             // we ignore this here, because these are generated when they are later rematerialized
