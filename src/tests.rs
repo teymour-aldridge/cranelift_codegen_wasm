@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use cranelift_codegen::{
     binemit::{NullStackMapSink, NullTrapSink},
     ir::{self, condcodes::IntCC, AbiParam, InstBuilder},
@@ -7,6 +9,7 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::Module;
 
+use cranelift_reader::parse_functions;
 use walrus::ModuleConfig;
 use wasmtime::{Engine, Instance, Store, WasmParams, WasmResults};
 
@@ -175,14 +178,64 @@ fn test_simple_control_flow() {
     );
 }
 
-#[test]
-/// Test some more elaborate usage of the relooper algorithm.
-fn test_elaborate_control_flow() {
-    todo!()
+fn test_from_file<Params: WasmParams, Return: WasmResults + std::fmt::Debug + Clone>(
+    params: Params,
+    file: impl AsRef<Path>,
+    check: impl FnOnce(Return) -> bool,
+) {
+    let file = ezio::file::read(file);
+
+    let funcs = parse_functions(&file).unwrap();
+
+    let func = funcs[0].clone();
+
+    let mut module = WasmModule::new(ModuleConfig::new());
+
+    let id = module
+        .declare_function(
+            "func_name",
+            cranelift_module::Linkage::Export,
+            &func.signature,
+        )
+        .unwrap();
+    let mut ctx = Context::new();
+    ctx.func = func;
+
+    module
+        .define_function(id, &mut ctx, &mut NullTrapSink {}, &mut NullStackMapSink {})
+        .expect("failed to define function");
+
+    if std::env::var("PRINT_WAT").is_ok() {
+        println!("{}", module.emit_wat());
+    }
+
+    let wasm = module.emit();
+    let engine = Engine::default();
+    let module = wasmtime::Module::new(&engine, wasm).unwrap();
+    let mut store = Store::new(&engine, ());
+    let instance = Instance::new(&mut store, &module, &[]).unwrap();
+    let func = instance
+        .get_func(&mut store, "func_name")
+        .expect("function not defined!");
+    let func = func.typed::<Params, Return, _>(&store).unwrap();
+    let ret = func.call(&mut store, params).unwrap();
+    assert!(
+        (check)(ret.clone()),
+        "assertion failed\nnote: the return value was {:#?}",
+        &ret
+    )
 }
 
 #[test]
-/// Test a series of files (e.g. wasm spec tests, some files from the Wasmtime repository).
-fn test_various_clif_files() {
-    todo!()
+fn test_simple_from_file() {
+    test_from_file((12, 13), "src/filetests/simple.clif", |out: i32| {
+        out == 12 + 13
+    })
+}
+
+#[test]
+fn test_branching_from_file() {
+    test_from_file((0, 13), "src/filetests/branching.clif", |out: i32| {
+        out == 84
+    })
 }

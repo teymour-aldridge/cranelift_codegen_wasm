@@ -17,4 +17,6 @@ walrus = "0.19.0"
 
 [dev-dependencies]
 cranelift-frontend = "0.79.0"
+cranelift-reader = "0.79.0"
+ezio = "0.1.0"
 wasmtime = "0.32.0"
