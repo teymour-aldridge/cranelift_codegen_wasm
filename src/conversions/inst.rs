@@ -144,7 +144,7 @@ pub fn build_wasm_inst(
                     unimplemented!()
                 }
                 translate_value(*arg, t, builder, can_branch_to, inst);
-                builder.binop(wasm_of_cond(*cond, imm.bits() == 32));
+                builder.binop(wasm_of_cond(*cond, ty.bits() == 32));
             } else {
                 panic!("{:#?} not yet supported", opcode);
             }
