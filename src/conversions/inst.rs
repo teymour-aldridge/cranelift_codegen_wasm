@@ -3,7 +3,8 @@ use walrus::{ir::BinaryOp, InstrSeqBuilder};
 
 use crate::{
     conversions::{cond::wasm_of_cond, ty::wasm_of_cranelift},
-    IndividualFunctionTranslator, Operand,
+    optable::Operand,
+    IndividualFunctionTranslator,
 };
 
 use super::block::CanBranchTo;

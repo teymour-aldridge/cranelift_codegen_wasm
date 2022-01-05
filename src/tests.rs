@@ -264,3 +264,10 @@ fn test_fibonacci_from_file() {
 fn test_basic_exprs() {
     test_from_file((), "src/filetests/expr.clif", |out: i32| out == 13);
 }
+
+#[test]
+fn test_basic_loop() {
+    test_from_file((), "src/filetests/loop.clif", |res: i32| -> bool {
+        res == 0
+    })
+}
