@@ -152,6 +152,22 @@ pub fn build_wasm_inst(
         ir::InstructionData::Jump { .. } | ir::InstructionData::Branch { .. } => {
             unreachable!("this operation should already have been handled")
         }
+        ir::InstructionData::BinaryImm64 { opcode, arg, imm } => {
+            if opcode == &ir::Opcode::IaddImm {
+                let ty = t.cursor.data_flow_graph().value_type(*arg);
+                assert!(ty.is_int());
+                translate_value(*arg, t, builder, can_branch_to, inst);
+                if ty.bits() == 64 {
+                    builder.i64_const(imm.bits());
+                    builder.binop(BinaryOp::I64Add);
+                } else if ty.bits() == 32 {
+                    builder.i32_const(imm.bits() as i32);
+                    builder.binop(BinaryOp::I32Add);
+                } else {
+                    unimplemented!();
+                }
+            }
+        }
         // operations that have not yet been implemented
         sth => {
             panic!("support for {:#?} has not yet been implemented", sth)
