@@ -1,7 +1,10 @@
 use cranelift_codegen::ir::{self, Inst, InstInserterBase};
 use walrus::{ir::BinaryOp, InstrSeqBuilder};
 
-use crate::{conversions::ty::wasm_of_cranelift, IndividualFunctionTranslator, Operand};
+use crate::{
+    conversions::{cond::wasm_of_cond, ty::wasm_of_cranelift},
+    IndividualFunctionTranslator, Operand,
+};
 
 use super::block::CanBranchTo;
 
@@ -124,50 +127,34 @@ pub fn build_wasm_inst(
                 panic!("operation not yet supported");
             }
         }
-
-        // operations that have not yet been implemented
-        ir::InstructionData::BinaryImm64 { .. }
-        | ir::InstructionData::BinaryImm8 { .. }
-        | ir::InstructionData::BranchIcmp { .. }
-        | ir::InstructionData::BranchInt { .. }
-        | ir::InstructionData::BranchTable { .. }
-        | ir::InstructionData::CallIndirect { .. }
-        | ir::InstructionData::BranchFloat { .. }
-        | ir::InstructionData::Call { .. }
-        | ir::InstructionData::CondTrap { .. }
-        | ir::InstructionData::FloatCompare { .. }
-        | ir::InstructionData::FloatCond { .. }
-        | ir::InstructionData::FloatCondTrap { .. }
-        | ir::InstructionData::FuncAddr { .. }
-        | ir::InstructionData::HeapAddr { .. }
-        | ir::InstructionData::IntCompareImm { .. }
-        | ir::InstructionData::IntCond { .. }
-        | ir::InstructionData::IntCondTrap { .. }
-        | ir::InstructionData::IntSelect { .. }
-        | ir::InstructionData::Load { .. }
-        | ir::InstructionData::LoadComplex { .. }
-        | ir::InstructionData::LoadNoOffset { .. }
-        | ir::InstructionData::NullAry { .. }
-        | ir::InstructionData::Shuffle { .. }
-        | ir::InstructionData::StackLoad { .. }
-        | ir::InstructionData::StackStore { .. }
-        | ir::InstructionData::Store { .. }
-        | ir::InstructionData::StoreComplex { .. }
-        | ir::InstructionData::StoreNoOffset { .. }
-        | ir::InstructionData::TableAddr { .. }
-        | ir::InstructionData::Ternary { .. }
-        | ir::InstructionData::TernaryImm8 { .. }
-        | ir::InstructionData::Trap { .. }
-        | ir::InstructionData::Unary { .. }
-        | ir::InstructionData::UnaryBool { .. }
-        | ir::InstructionData::UnaryConst { .. }
-        | ir::InstructionData::UnaryGlobalValue { .. }
-        | ir::InstructionData::UnaryIeee32 { .. }
-        | ir::InstructionData::UnaryIeee64 { .. } => {
-            panic!("this operation is not yet supported")
+        ir::InstructionData::IntCompareImm {
+            opcode,
+            arg,
+            cond,
+            imm,
+        } => {
+            let ty = t.cursor.data_flow_graph().value_type(*arg);
+            assert!(ty.is_int());
+            if opcode == &ir::Opcode::IcmpImm {
+                if ty.bits() == 64 {
+                    builder.i64_const(imm.bits());
+                } else if ty.bits() == 32 {
+                    builder.i32_const(imm.bits() as i32);
+                } else {
+                    unimplemented!()
+                }
+                translate_value(*arg, t, builder, can_branch_to, inst);
+                builder.binop(wasm_of_cond(*cond, imm.bits() == 32));
+            } else {
+                panic!("{:#?} not yet supported", opcode);
+            }
         }
         ir::InstructionData::Jump { .. } | ir::InstructionData::Branch { .. } => {
             unreachable!("this operation should already have been handled")
+        }
+        // operations that have not yet been implemented
+        sth => {
+            panic!("support for {:#?} has not yet been implemented", sth)
         }
     }
 }
