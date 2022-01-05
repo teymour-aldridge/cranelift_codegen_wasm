@@ -239,3 +239,17 @@ fn test_branching_from_file() {
         out == 84
     })
 }
+
+#[test]
+fn test_fibonacci_from_file() {
+    fn fib(n: i32) -> i32 {
+        match n {
+            0 | 1 | 2 => 1,
+            n => fib(n - 1) + fib(n + 2),
+        }
+    }
+
+    for i in 1..20 {
+        test_from_file(i, "src/filetests/fib.clif", |out: i32| out == fib(i));
+    }
+}
