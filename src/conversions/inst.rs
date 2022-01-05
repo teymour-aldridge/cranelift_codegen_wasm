@@ -184,8 +184,6 @@ pub(crate) fn translate_value(
                 // it should already have been pushed onto the stack where it was defined
                 Operand::SingleUse(_) => {}
                 Operand::NormalUse(val) => {
-                    dbg!(val);
-                    dbg!(&t.locals);
                     if let Some(local) = t.locals.get(&val) {
                         builder.local_get(*local);
                     } else {

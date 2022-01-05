@@ -74,10 +74,12 @@ fn build_from_pos(
                             .map(|x| *x)
                             .clone()
                             .collect::<Vec<_>>();
+                        // set all the parameters that the destination block requires
                         for (value, (_, local)) in args.iter().zip(jump_to.iter()) {
                             translate_value(*value, t, builder, can_branch_to, next);
                             builder.local_set(*local);
                         }
+                        // break to the next block
                         let seq_id = t.loop_to_block.get(&id).expect("internal error");
                         builder.br(*seq_id);
                     }
