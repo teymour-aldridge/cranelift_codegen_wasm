@@ -134,7 +134,15 @@ fn build_from_pos(
                             let local = match label {
                                 BranchInstr::SetLocal(l) => l,
                             };
-                            builder.i32_const(i32::MAX).local_set(*local);
+                            builder.if_else(
+                                None,
+                                |then| {
+                                    then.i32_const(i32::MAX).local_set(*local);
+                                },
+                                |alt| {
+                                    build_from_pos(t, alt, can_branch_to);
+                                },
+                            );
                             return;
                         }
                     }
