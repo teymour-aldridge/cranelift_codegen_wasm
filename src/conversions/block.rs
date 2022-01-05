@@ -126,9 +126,16 @@ fn build_from_pos(
                         BranchMode::LoopBreakIntoMulti(_) => todo!(),
                         BranchMode::LoopContinue(_) => todo!(),
                         BranchMode::LoopContinueIntoMulti(_) => todo!(),
-                        BranchMode::MergedBranch => todo!(),
                         BranchMode::MergedBranchIntoMulti => todo!(),
                         BranchMode::SetLabelAndBreak => todo!(),
+                        BranchMode::MergedBranch => {
+                            let (_, label) = can_branch_to.locally_computed.iter().next().unwrap();
+                            let local = match label {
+                                BranchInstr::SetLocal(l) => l,
+                            };
+                            builder.i32_const(i32::MAX).local_set(*local);
+                            return;
+                        }
                     }
                 }
 
