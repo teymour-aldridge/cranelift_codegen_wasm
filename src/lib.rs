@@ -7,6 +7,7 @@ mod conversions;
 
 use std::path::Path;
 
+use conversions::ty::wasm_of_cranelift;
 use cranelift_codegen::{
     binemit,
     cursor::{Cursor, FuncCursor},
@@ -27,7 +28,10 @@ use walrus::{
     ModuleConfig, ModuleLocals, ValType,
 };
 
-use crate::conversions::{block::build_wasm_block, sig::wasm_of_sig};
+use crate::conversions::{
+    block::{build_wasm_block, BranchInstr, CanBranchTo},
+    sig::wasm_of_sig,
+};
 
 /// A WebAssembly module.
 pub struct WasmModule {
@@ -182,7 +186,7 @@ impl CraneliftModule for WasmModule {
         // set up Cranelift
         let mut cursor = FuncCursor::new(&mut ctx.func);
 
-        let operand_table = OperandTable::fill(&mut cursor);
+        let operand_table = OperandTable::fill(&mut cursor, &mut self.module.locals);
 
         // todo: check if function is empty!
         let blocks: Vec<_> = cursor
@@ -207,14 +211,16 @@ impl CraneliftModule for WasmModule {
                     BranchInfo::SingleDest(block, _) => {
                         branches.push(block.as_u32());
                     }
-                    BranchInfo::Table(_, _) => todo!(),
+                    BranchInfo::Table(_, _) => {
+                        todo!()
+                    }
                 }
             }
 
             relooper_blocks.push((block.as_u32(), branches))
         }
 
-        let first = blocks.first().map(|b| b.as_u32()).unwrap();
+        let first = cursor.func.layout.entry_block().unwrap().as_u32();
 
         let structured = reloop(relooper_blocks, first);
 
@@ -233,7 +239,7 @@ impl CraneliftModule for WasmModule {
             &mut locals,
         );
 
-        translator.compile_structured(&mut builder, &structured);
+        translator.compile_structured(&mut builder, &structured, None);
 
         Ok(ModuleCompiledFunction {
             // todo: compute size correctly
@@ -284,7 +290,6 @@ pub struct IndividualFunctionTranslator<'clif> {
     loop_to_block: &'clif mut FnvHashMap<u16, InstrSeqId>,
     #[allow(unused)]
     multi_to_block: &'clif mut FnvHashMap<u16, InstrSeqId>,
-    current_label: Option<LocalId>,
     operand_table: &'clif OperandTable,
     locals: &'clif mut FnvHashMap<ir::Value, LocalId>,
 }
@@ -305,55 +310,75 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
             block_to_seq,
             loop_to_block,
             multi_to_block,
-            current_label: None,
             operand_table,
             locals,
         }
     }
 
-    fn compile_structured(&mut self, builder: &mut InstrSeqBuilder, structured: &ShapedBlock<u32>) {
+    fn compile_structured(
+        &mut self,
+        builder: &mut InstrSeqBuilder,
+        structured: &ShapedBlock<u32>,
+        label: Option<LocalId>,
+    ) {
         match structured {
             // a straight-line sequence of blocks
             // we just translate each one in turn
             ShapedBlock::Simple(simple) => {
-                let can_branch_to = &simple.branches;
+                if let Some(ref immediate) = simple.immediate {
+                    let local = self.module_locals.add(ValType::I32);
 
-                build_wasm_block(Block::from_u32(simple.label), self, builder, &can_branch_to);
+                    let mut locally_computed = FnvHashMap::default();
+                    if let ShapedBlock::Multiple(block) = immediate.as_ref() {
+                        for each in &block.handled {
+                            for label in &each.labels {
+                                locally_computed.insert(*label, BranchInstr::SetLocal(local));
+                            }
+                        }
+                    }
+
+                    build_wasm_block(
+                        Block::from_u32(simple.label),
+                        self,
+                        builder,
+                        &CanBranchTo {
+                            from_relooper: &simple.branches,
+                            locally_computed,
+                        },
+                    );
+
+                    self.compile_structured(builder, immediate, Some(local));
+                } else {
+                    build_wasm_block(
+                        Block::from_u32(simple.label),
+                        self,
+                        builder,
+                        &CanBranchTo {
+                            from_relooper: &simple.branches,
+                            locally_computed: Default::default(),
+                        },
+                    );
+                }
 
                 if let Some(ref next) = simple.next {
-                    self.compile_structured(builder, next);
+                    self.compile_structured(builder, next, None);
                 }
             }
             ShapedBlock::Loop(l) => {
                 builder.loop_(None, |builder: &mut InstrSeqBuilder| {
                     self.loop_to_block.insert(l.loop_id, builder.id());
-                    self.compile_structured(builder, &l.inner)
+                    self.compile_structured(builder, &l.inner, None);
                 });
 
                 if let Some(ref next) = l.next {
-                    // todo: provide loop context (for breaking from them)
-                    self.compile_structured(builder, next);
+                    self.compile_structured(builder, next, None);
                 }
             }
             // `match`/`if` + `else if` chain
             ShapedBlock::Multiple(m) => {
                 // note: `HandledBlock::break_after` means "can this entry reach another entry"
 
-                // we create a local storing the label
-                let label = self.module_locals.add(ValType::I32);
-                let current_val = self.current_label.clone();
-                self.current_label = Some(label);
-                // todo: this might panic – handle that case better
-                // then we set the label to the first item
-                builder
-                    .i32_const(
-                        *m.handled
-                            .first()
-                            .map(|item| item.labels.first())
-                            .flatten()
-                            .unwrap() as i32,
-                    )
-                    .local_set(label);
+                let label = label.unwrap();
 
                 // now we run the if-else sequence
                 // once for each node in the state machine
@@ -361,20 +386,19 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
                     // and then once for each possible label
                     for val in &each.labels {
                         builder
+                            // check if the `label` local matches the id in question
                             .local_get(label)
                             .i32_const(*val as i32)
                             .binop(BinaryOp::I32Eq)
                             .if_else(
-                                ValType::I32,
+                                None,
                                 |builder| {
-                                    self.compile_structured(builder, &each.inner);
+                                    self.compile_structured(builder, &each.inner, None);
                                 },
                                 |_| {},
                             );
                     }
                 }
-
-                self.current_label = current_val;
             }
         }
     }
@@ -400,35 +424,45 @@ enum Operand {
 impl Operand {
     /// Retrieves the type of the operand from the provided table.
     fn from_table<'ctx>(value: ir::Value, table: &OperandTable) -> Self {
+        Operand::try_from_table(value, table).unwrap()
+    }
+
+    fn try_from_table(value: ir::Value, table: &OperandTable) -> Option<Self> {
         if table.rematerialize.contains(&value) {
-            return Self::Rematerialise(value);
+            return Some(Self::Rematerialise(value));
         }
 
-        let val = *table.value_uses.get(&value).unwrap();
+        let val = if let Some(t) = table.value_uses.get(&value) {
+            *t
+        } else {
+            return None;
+        };
 
-        // todo: check for constants
-
-        if val == 0 || val == 1 {
+        Some(if val == 0 || val == 1 {
             Self::SingleUse(value)
         } else {
             Self::NormalUse(value)
-        }
+        })
     }
 }
 
+#[derive(Debug)]
 pub struct OperandTable {
     /// Counts the number of times a `[cranelift_codegen::ir::Value]` was used.
     value_uses: FnvHashMap<ir::Value, usize>,
     /// Values which should always be rematerialised.
     rematerialize: FnvHashSet<ir::Value>,
+    /// Values which are passed as parameters to a block.
+    block_params: FnvHashMap<Block, FnvHashMap<ir::Value, LocalId>>,
 }
 
 impl OperandTable {
     /// Computes the role of every [cranelift_codegen::ir::Value] in the provided program, and adds
     /// it to this table.
-    fn fill(cursor: &mut FuncCursor) -> OperandTable {
+    fn fill(cursor: &mut FuncCursor, module: &mut ModuleLocals) -> OperandTable {
         let mut value_uses: FnvHashMap<_, _> = Default::default();
         let mut rematerialize: FnvHashSet<_> = Default::default();
+        let mut block_params: FnvHashMap<_, _> = Default::default();
 
         let params = cursor
             .layout()
@@ -440,10 +474,30 @@ impl OperandTable {
             .flatten();
 
         for (value, _) in params {
-            let def = cursor.data_flow_graph().value_def(*value).unwrap_inst();
+            let def = match cursor.data_flow_graph().value_def(*value) {
+                ir::ValueDef::Result(inst, _) => inst,
+                ir::ValueDef::Param(block, _) => {
+                    let ty = cursor.data_flow_graph().value_type(*value);
+                    let ty = wasm_of_cranelift(ty);
+                    let local = module.add(ty);
+                    block_params
+                        .entry(block)
+                        .and_modify(|map: &mut FnvHashMap<_, _>| {
+                            map.insert(*value, local);
+                        })
+                        .or_insert({
+                            let mut map = FnvHashMap::default();
+                            map.insert(*value, local);
+                            map
+                        });
+                    continue;
+                }
+            };
+
             let def = &cursor.data_flow_graph()[def];
             match def {
-                ir::InstructionData::Unary { opcode, arg: _ } => match opcode {
+                ir::InstructionData::Unary { opcode, arg: _ }
+                | ir::InstructionData::UnaryImm { opcode, imm: _ } => match opcode {
                     ir::Opcode::Iconst => {
                         rematerialize.insert(*value);
                         continue;
@@ -459,6 +513,7 @@ impl OperandTable {
         Self {
             value_uses,
             rematerialize,
+            block_params,
         }
     }
 }

@@ -2,11 +2,11 @@ use std::str::FromStr;
 
 use cranelift_codegen::{
     binemit::{NullStackMapSink, NullTrapSink},
-    ir::{self, AbiParam, InstBuilder},
+    ir::{self, condcodes::IntCC, AbiParam, InstBuilder},
     isa::CallConv,
     settings, Context,
 };
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::Module;
 use target_lexicon::triple;
 use walrus::ModuleConfig;
@@ -14,7 +14,7 @@ use wasmtime::{Engine, Instance, Store, WasmParams, WasmResults};
 
 use crate::WasmModule;
 
-fn run_test<Params: WasmParams, Return: WasmResults>(
+fn run_test<Params: WasmParams, Return: WasmResults + std::fmt::Debug + Clone>(
     params: Params,
     sig: ir::Signature,
     build: impl FnOnce(&mut FunctionBuilder),
@@ -44,6 +44,10 @@ fn run_test<Params: WasmParams, Return: WasmResults>(
 
     builder.finalize();
 
+    if std::env::var("PRINT_CLIF").is_ok() {
+        println!("{}", ctx.func);
+    }
+
     module
         .define_function(
             func_id,
@@ -52,6 +56,10 @@ fn run_test<Params: WasmParams, Return: WasmResults>(
             &mut NullStackMapSink {},
         )
         .unwrap();
+
+    if std::env::var("PRINT_WAT").is_ok() {
+        println!("{}", module.emit_wat());
+    }
 
     let wasm = module.emit();
     let engine = Engine::default();
@@ -63,7 +71,11 @@ fn run_test<Params: WasmParams, Return: WasmResults>(
         .expect("function not defined!");
     let func = func.typed::<Params, Return, _>(&store).unwrap();
     let ret = func.call(&mut store, params).unwrap();
-    assert!((check)(ret))
+    assert!(
+        (check)(ret.clone()),
+        "assertion failed\nnote: the return value was {:#?}",
+        &ret
+    )
 }
 
 #[test]
@@ -121,7 +133,55 @@ fn test_simple_data_decl() {
 #[test]
 /// Test some basic usage of the relooper algorithm.
 fn test_simple_control_flow() {
-    todo!()
+    run_test(
+        (),
+        ir::Signature {
+            params: vec![],
+            returns: vec![AbiParam::new(ir::types::I32)],
+            call_conv: CallConv::SystemV,
+        },
+        // this function looks roughly like:
+        // i = 100
+        // while i != 0 do
+        //     i -= 1
+        // endwhile
+        // return i
+        |builder| {
+            let entry = builder.create_block();
+            builder.switch_to_block(entry);
+
+            let zero = builder.ins().iconst(ir::types::I32, 0);
+            builder.declare_var(Variable::with_u32(0), ir::types::I32);
+            let iteration_val = builder.ins().iconst(ir::types::I32, 100);
+            let add_res = builder.ins().iadd(zero, iteration_val);
+            builder.def_var(Variable::with_u32(0), add_res);
+
+            let header_block = builder.create_block();
+            let body_block = builder.create_block();
+            let exit_block = builder.create_block();
+
+            builder.ins().jump(header_block, &[]);
+            builder.switch_to_block(header_block);
+            let iteration = builder.use_var(Variable::with_u32(0));
+            let condition = builder.ins().icmp(IntCC::Equal, iteration, zero);
+            builder.ins().brz(condition, exit_block, &[]);
+            builder.ins().jump(body_block, &[]);
+            builder.switch_to_block(body_block);
+            builder.seal_block(body_block);
+
+            let one = builder.ins().iconst(ir::types::I32, 1);
+            let sub_res = builder.ins().isub(iteration, one);
+            builder.def_var(Variable::with_u32(0), sub_res);
+            builder.ins().jump(header_block, &[]);
+
+            builder.switch_to_block(exit_block);
+            builder.seal_block(header_block);
+            builder.seal_block(exit_block);
+            builder.ins().return_(&[iteration]);
+            builder.seal_block(entry);
+        },
+        |res: i32| -> bool { res == 0 },
+    );
 }
 
 #[test]
