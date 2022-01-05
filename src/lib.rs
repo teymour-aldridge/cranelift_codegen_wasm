@@ -397,6 +397,9 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
                             );
                     }
                 }
+
+                // todo: can this be reached?
+                builder.unreachable();
             }
         }
     }
