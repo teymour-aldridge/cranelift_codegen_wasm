@@ -98,7 +98,10 @@ fn build_from_pos(
             } => {
                 // first we compute the condition
                 let arg = args.as_slice(&t.cursor.func.dfg.value_lists)[0];
+                dbg!(arg);
+                dbg!(&builder);
                 translate_value(arg, t, builder, can_branch_to, next);
+                dbg!(&builder);
 
                 if opcode == &ir::Opcode::Brnz {
                     let ty = t.cursor.data_flow_graph().value_type(arg);
@@ -163,27 +166,12 @@ fn build_from_pos(
                         .map(|x| *x)
                         .clone()
                         .collect::<Vec<_>>();
-                    for (value, (_, local)) in args.iter().zip(jump_to.iter()) {
+                    for (value, (_, local)) in args[1..].iter().zip(jump_to.iter()) {
                         translate_value(*value, t, builder, can_branch_to, next);
                         builder.local_set(*local);
                     }
                 }
-                if opcode == &ir::Opcode::Brz {
-                    match method {
-                        BranchInstr::SetLocal(label) => {
-                            builder.if_else(
-                                None,
-                                |then| {
-                                    then.i32_const(destination.as_u32() as i32)
-                                        .local_set(*label);
-                                },
-                                |alt| {
-                                    build_from_pos(t, alt, can_branch_to);
-                                },
-                            );
-                        }
-                    }
-                } else if opcode == &ir::Opcode::Brnz {
+                if opcode == &ir::Opcode::Brz || opcode == &ir::Opcode::Brz {
                     match method {
                         BranchInstr::SetLocal(label) => {
                             builder.if_else(

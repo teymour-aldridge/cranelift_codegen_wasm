@@ -253,3 +253,8 @@ fn test_fibonacci_from_file() {
         test_from_file(i, "src/filetests/fib.clif", |out: i32| out == fib(i));
     }
 }
+
+#[test]
+fn test_basic_exprs() {
+    test_from_file((), "src/filetests/expr.clif", |out: i32| out == 13);
+}
