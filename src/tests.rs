@@ -1,4 +1,4 @@
-use std::{path::Path, thread};
+use std::{fmt, path::Path, thread};
 
 use cranelift_codegen::{
     binemit::{NullStackMapSink, NullTrapSink},
@@ -8,7 +8,6 @@ use cranelift_codegen::{
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::Module;
-
 use cranelift_reader::parse_functions;
 use log::LevelFilter;
 use log4rs::{
@@ -16,15 +15,16 @@ use log4rs::{
     config::{Appender, Logger, Root},
     encode::pattern::PatternEncoder,
 };
+use rusty_fork::rusty_fork_test;
 use walrus::ModuleConfig;
 use wasmtime::{Config, Engine, Instance, Store, WasmParams, WasmResults};
 
 use crate::WasmModule;
 
-fn enable_log() {
+fn enable_log(unique: impl fmt::Display) {
     let output = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
-        .build("log/output.log")
+        .build(format!("log/output-{}.log", unique))
         .unwrap();
     let config = log4rs::config::Config::builder()
         .appender(Appender::builder().build("logs", Box::new(output)))
@@ -263,9 +263,10 @@ fn test_branching_from_file() {
     )
 }
 
+rusty_fork_test! {
 #[test]
 fn test_fibonacci_from_file() {
-    enable_log();
+    enable_log("test_fibonacci_from_file");
 
     fn fib(n: i32) -> i32 {
         match n {
@@ -283,6 +284,7 @@ fn test_fibonacci_from_file() {
     });
 
     // todo: higher numbers are currently failing
+}
 }
 
 #[test]
@@ -366,16 +368,16 @@ mod control_flow {
 
     #[test]
     fn test_cond_br() {
-        enable_log();
+        enable_log("test_cond_br");
         test_from_file(
-            (1i64, 1i64),
-            "src/filetests/wasmtime/condbr.clif",
-            |res: i64| -> bool { res == 1 },
+            (1, 1),
+            "src/filetests/wasmtime/condbr-i32.clif",
+            |res: i32| -> bool { res == 1 },
         );
         test_from_file(
-            (1i64, 2i64),
-            "src/filetests/wasmtime/condbr.clif",
-            |res: i64| -> bool { res == 2 },
+            (1, 2),
+            "src/filetests/wasmtime/condbr-i32.clif",
+            |res: i32| -> bool { res == 2 },
         );
     }
 }

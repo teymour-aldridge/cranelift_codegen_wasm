@@ -1,14 +1,14 @@
-function %f(i64, i64) -> i64 {
-block0(v0: i64, v1: i64):
+function %f(i32, i32) -> i32 {
+block0(v0: i32, v1: i32):
   v2 = icmp eq v0, v1
   brnz v2, block1
   jump block2
 
 block1:
-  v4 = iconst.i64 1
+  v4 = iconst.i32 1
   return v4
 
 block2:
-  v5 = iconst.i64 2
+  v5 = iconst.i32 2
   return v5
 }

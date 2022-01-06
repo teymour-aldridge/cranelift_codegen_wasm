@@ -32,6 +32,7 @@ use walrus::{
 use crate::conversions::{
     block::{build_wasm_block, BranchInstr, CanBranchTo},
     sig::wasm_of_sig,
+    ty,
 };
 
 /// A WebAssembly module.
@@ -169,15 +170,18 @@ impl CraneliftModule for WasmModule {
         _trap_sink: &mut dyn binemit::TrapSink,
         _stack_map_sink: &mut dyn binemit::StackMapSink,
     ) -> ModuleResult<ModuleCompiledFunction> {
-        log::trace!("started compiling function");
+        log::trace!("started compiling function with id {:#?}", func_id);
 
         let id = self
             .functions
             .get(&func_id)
             .expect("function declared but never defined!");
 
+        log::trace!("module details: {:#?}", self.module);
+
         // retrieve WebAssembly function
         let func = self.module.funcs.get_mut(*id);
+
         log::trace!("found function: {:#?}", func);
         let mut builder = match func.kind {
             walrus::FunctionKind::Import(_) => unreachable!(),
@@ -233,7 +237,17 @@ impl CraneliftModule for WasmModule {
         let (mut block_to_seq, mut loop_to_block, mut multi_to_block) =
             (Default::default(), Default::default(), Default::default());
 
-        let mut locals = Default::default();
+        let mut locals: FnvHashMap<_, _> = Default::default();
+
+        let params = cursor
+            .func
+            .dfg
+            .block_params(cursor.layout().entry_block().unwrap());
+        for each in params {
+            let ty = cursor.func.dfg.value_type(*each);
+            let local_id = self.module.locals.add(ty::wasm_of_cranelift(ty));
+            locals.insert(*each, local_id);
+        }
 
         let mut translator = IndividualFunctionTranslator::new(
             &mut self.module.locals,
@@ -247,6 +261,8 @@ impl CraneliftModule for WasmModule {
 
         translator.compile_structured(&mut builder, &structured, None, has_next(&structured));
         builder.unreachable();
+
+        log::trace!("finished compiling func with id {:#?}", func_id);
 
         Ok(ModuleCompiledFunction {
             // todo: compute size correctly
