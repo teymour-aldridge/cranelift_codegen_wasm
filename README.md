@@ -19,3 +19,6 @@ Everything!
 - translation of more complex control flow
 - testing
 
+## Useful resources
+- [Human-readable WebAssembly guide](https://github.com/sunfishcode/wasm-reference-manual/blob/master/WebAssembly.md)
+- [Structured control flow problem](https://medium.com/leaningtech/solving-the-structured-control-flow-problem-once-and-for-all-5123117b1ee2)
