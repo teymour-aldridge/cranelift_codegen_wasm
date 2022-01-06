@@ -8,7 +8,7 @@ use walrus::{ir::BinaryOp, InstrSeqBuilder, LocalId};
 
 use crate::IndividualFunctionTranslator;
 
-use super::inst::{build_wasm_inst, translate_value};
+use super::inst::translate_value;
 
 pub struct CanBranchTo<'a> {
     pub(crate) from_relooper: &'a FnvHashMap<u32, BranchMode>,
@@ -53,7 +53,7 @@ fn build_from_pos(
                         .collect::<Vec<_>>();
 
                     for (value, (_, local)) in args.iter().zip(jump_to.iter()) {
-                        translate_value(*value, t, builder, can_branch_to, next);
+                        translate_value(*value, t, builder, can_branch_to);
                         builder.local_set(*local);
                     }
                 }
@@ -89,6 +89,16 @@ fn build_from_pos(
                     | BranchMode::SetLabelAndBreak => todo!(),
                 }
             }
+            ir::InstructionData::MultiAry { opcode, args } => {
+                if opcode == &ir::Opcode::Return {
+                    let pool = &t.cursor.data_flow_graph().value_lists;
+                    let args = args.as_slice(pool).iter().map(|x| *x).collect::<Vec<_>>();
+                    for arg in args {
+                        translate_value(arg, t, builder, can_branch_to);
+                    }
+                    builder.return_();
+                }
+            }
             ir::InstructionData::Branch {
                 opcode,
                 args,
@@ -102,14 +112,14 @@ fn build_from_pos(
                         .clone()
                         .collect::<Vec<_>>();
                     for (value, (_, local)) in args[1..].iter().zip(jump_to.iter()) {
-                        translate_value(*value, t, builder, can_branch_to, next);
+                        translate_value(*value, t, builder, can_branch_to);
                         builder.local_set(*local);
                     }
                 }
 
                 // first we compute the condition
                 let arg = args.as_slice(&t.cursor.func.dfg.value_lists)[0];
-                translate_value(arg, t, builder, can_branch_to, next);
+                translate_value(arg, t, builder, can_branch_to);
 
                 if opcode == &ir::Opcode::Brz {
                     let ty = t.cursor.data_flow_graph().value_type(arg);
@@ -129,7 +139,8 @@ fn build_from_pos(
 
                 if opcode == &ir::Opcode::Brnz {
                     let ty = t.cursor.data_flow_graph().value_type(arg);
-                    if ty.bits() == 64 {
+                    if ty.is_bool() {
+                    } else if ty.bits() == 64 {
                         builder.i64_const(0);
                         builder.binop(BinaryOp::I64Ne);
                     } else if ty.bits() <= 32
@@ -201,11 +212,8 @@ fn build_from_pos(
                     panic!("operation {:#?} not yet supported", opcode)
                 }
             }
-            // we ignore this here, because these are generated when they are later rematerialized
-            ir::InstructionData::UnaryImm { .. } => {}
-            // todo: handle some other control-flow operations
             // everything else is handled by `build_wasm_inst`
-            _ => build_wasm_inst(next, t, builder, can_branch_to),
+            _ => (),
         }
     }
 }

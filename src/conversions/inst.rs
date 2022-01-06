@@ -1,4 +1,4 @@
-use cranelift_codegen::ir::{self, Inst, InstInserterBase};
+use cranelift_codegen::ir::{self, InstInserterBase};
 use walrus::{ir::BinaryOp, InstrSeqBuilder};
 
 use crate::{
@@ -27,7 +27,7 @@ pub fn build_wasm_inst(
         }
         ir::InstructionData::Binary { opcode, args } => {
             for operand in args {
-                translate_value(*operand, t, builder, can_branch_to, inst);
+                translate_value(*operand, t, builder, can_branch_to);
             }
             match opcode {
                 ir::Opcode::Iadd => {
@@ -77,19 +77,9 @@ pub fn build_wasm_inst(
                 panic!("this operation is not yet supported")
             }
         }
-        ir::InstructionData::MultiAry { opcode, args } => {
-            if opcode == &ir::Opcode::Return {
-                let pool = &t.cursor.data_flow_graph().value_lists;
-                let args = args.as_slice(pool).iter().map(|x| *x).collect::<Vec<_>>();
-                for arg in args {
-                    translate_value(arg, t, builder, can_branch_to, inst);
-                }
-                builder.return_();
-            }
-        }
         ir::InstructionData::IntCompare { opcode, args, cond } => {
             for arg in args {
-                translate_value(*arg, t, builder, can_branch_to, inst);
+                translate_value(*arg, t, builder, can_branch_to);
             }
             let ty = t.cursor.data_flow_graph().value_type(args[0]);
             assert!(ty.is_int());
@@ -144,20 +134,22 @@ pub fn build_wasm_inst(
                 } else {
                     unimplemented!()
                 }
-                translate_value(*arg, t, builder, can_branch_to, inst);
+                translate_value(*arg, t, builder, can_branch_to);
                 builder.binop(wasm_of_cond(*cond, ty.bits() == 32));
             } else {
                 panic!("{:#?} not yet supported", opcode);
             }
         }
-        ir::InstructionData::Jump { .. } | ir::InstructionData::Branch { .. } => {
+        ir::InstructionData::Jump { .. }
+        | ir::InstructionData::Branch { .. }
+        | ir::InstructionData::MultiAry { .. } => {
             unreachable!("this operation should already have been handled")
         }
         ir::InstructionData::BinaryImm64 { opcode, arg, imm } => {
             if opcode == &ir::Opcode::IaddImm {
                 let ty = t.cursor.data_flow_graph().value_type(*arg);
                 assert!(ty.is_int());
-                translate_value(*arg, t, builder, can_branch_to, inst);
+                translate_value(*arg, t, builder, can_branch_to);
                 if ty.bits() == 64 {
                     builder.i64_const(imm.bits());
                     builder.binop(BinaryOp::I64Add);
@@ -180,38 +172,35 @@ pub(crate) fn translate_value(
     t: &mut IndividualFunctionTranslator<'_>,
     builder: &mut InstrSeqBuilder,
     can_branch_to: &CanBranchTo,
-    current_inst: Inst,
 ) {
     match t.cursor.data_flow_graph().value_def(operand) {
-        ir::ValueDef::Result(_, _) => {
-            match Operand::from_table(operand, &t.operand_table) {
-                // it should already have been pushed onto the stack where it was defined
-                Operand::SingleUse(_) => {}
-                Operand::NormalUse(val) => {
-                    if let Some(local) = t.locals.get(&val) {
-                        builder.local_get(*local);
-                    } else {
-                        let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
-                        build_wasm_inst(def, t, builder, can_branch_to);
-
-                        let arg = t.module_locals.add({
-                            let ty = t.cursor.data_flow_graph().value_type(val);
-                            wasm_of_cranelift(ty)
-                        });
-
-                        t.locals.insert(val, arg);
-                        builder.local_set(arg);
-                        builder.local_get(arg);
-                    }
-                }
-                Operand::Rematerialise(val) => {
+        ir::ValueDef::Result(_, _) => match Operand::from_table(operand, &t.operand_table) {
+            Operand::SingleUse(val) => {
+                let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
+                build_wasm_inst(def, t, builder, can_branch_to);
+            }
+            Operand::NormalUse(val) => {
+                if let Some(local) = t.locals.get(&val) {
+                    builder.local_get(*local);
+                } else {
                     let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
-                    if def != current_inst {
-                        build_wasm_inst(def, t, builder, can_branch_to);
-                    }
+                    build_wasm_inst(def, t, builder, can_branch_to);
+
+                    let arg = t.module_locals.add({
+                        let ty = t.cursor.data_flow_graph().value_type(val);
+                        wasm_of_cranelift(ty)
+                    });
+
+                    t.locals.insert(val, arg);
+                    builder.local_set(arg);
+                    builder.local_get(arg);
                 }
             }
-        }
+            Operand::Rematerialise(val) => {
+                let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
+                build_wasm_inst(def, t, builder, can_branch_to);
+            }
+        },
         ir::ValueDef::Param(block, _) => {
             let local = t
                 .operand_table
