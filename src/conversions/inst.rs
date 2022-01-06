@@ -127,6 +127,7 @@ pub fn build_wasm_inst(
             let ty = t.cursor.data_flow_graph().value_type(*arg);
             assert!(ty.is_int());
             if opcode == &ir::Opcode::IcmpImm {
+                translate_value(*arg, t, builder, can_branch_to);
                 if ty.bits() == 64 {
                     builder.i64_const(imm.bits());
                 } else if ty.bits() == 32 {
@@ -134,7 +135,6 @@ pub fn build_wasm_inst(
                 } else {
                     unimplemented!()
                 }
-                translate_value(*arg, t, builder, can_branch_to);
                 builder.binop(wasm_of_cond(*cond, ty.bits() == 32));
             } else {
                 panic!("{:#?} not yet supported", opcode);

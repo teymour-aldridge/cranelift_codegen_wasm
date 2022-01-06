@@ -238,7 +238,7 @@ impl CraneliftModule for WasmModule {
             &mut locals,
         );
 
-        translator.compile_structured(&mut builder, &structured, None);
+        translator.compile_structured(&mut builder, &structured, None, has_next(&structured));
         builder.unreachable();
 
         Ok(ModuleCompiledFunction {
@@ -320,6 +320,7 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
         builder: &mut InstrSeqBuilder,
         structured: &ShapedBlock<u32>,
         label: Option<LocalId>,
+        next_exists: bool,
     ) {
         match structured {
             // a straight-line sequence of blocks
@@ -347,7 +348,7 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
                         },
                     );
 
-                    self.compile_structured(builder, immediate, Some(local));
+                    self.compile_structured(builder, immediate, Some(local), has_next(&structured));
                 } else {
                     build_wasm_block(
                         Block::from_u32(simple.label),
@@ -361,17 +362,17 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
                 }
 
                 if let Some(ref next) = simple.next {
-                    self.compile_structured(builder, next, None);
+                    self.compile_structured(builder, next, None, has_next(next));
                 }
             }
             ShapedBlock::Loop(l) => {
                 builder.loop_(None, |builder: &mut InstrSeqBuilder| {
                     self.loop_to_block.insert(l.loop_id, builder.id());
-                    self.compile_structured(builder, &l.inner, None);
+                    self.compile_structured(builder, &l.inner, None, has_next(&l.inner));
                 });
 
                 if let Some(ref next) = l.next {
-                    self.compile_structured(builder, next, None);
+                    self.compile_structured(builder, next, None, has_next(&next));
                 }
             }
             // `match`/`if` + `else if` chain
@@ -393,16 +394,30 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
                             .if_else(
                                 None,
                                 |builder| {
-                                    self.compile_structured(builder, &each.inner, None);
+                                    self.compile_structured(
+                                        builder,
+                                        &each.inner,
+                                        None,
+                                        has_next(&each.inner),
+                                    );
                                 },
                                 |_| {},
                             );
                     }
                 }
 
-                // todo: can this be reached?
-                builder.unreachable();
+                if !next_exists {
+                    builder.unreachable();
+                }
             }
         }
+    }
+}
+
+fn has_next(shaped: &ShapedBlock<u32>) -> bool {
+    match shaped {
+        ShapedBlock::Simple(s) => s.next.is_some(),
+        ShapedBlock::Loop(l) => l.next.is_some(),
+        ShapedBlock::Multiple(_) => false,
     }
 }
