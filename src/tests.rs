@@ -257,7 +257,7 @@ fn test_from_file<Params: WasmParams, Return: WasmResults + std::fmt::Debug + Cl
         (check)(ret.clone()),
         "assertion failed\nnote: the return value was {:#?}",
         &ret
-    )
+    );
 }
 
 #[test]
@@ -285,7 +285,7 @@ fn test_fibonacci_from_file() {
     fn fib(n: i32) -> i32 {
         match n {
             0 | 1 | 2 => 1,
-            n => fib(n - 1) + fib(n + 2),
+            n => fib(n - 1) + fib(n - 2),
         }
     }
 

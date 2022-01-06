@@ -92,9 +92,10 @@ fn build_from_pos(
                                 let seq_id = t.loop_to_block.get(&id).expect("internal error");
                                 builder.br(*seq_id);
                             }
-                            BranchMode::LoopBreak(id) => {
-                                let seq_id = t.loop_to_block.get(&id).expect("internal error");
-                                builder.i32_const(1).br_if(*seq_id);
+                            BranchMode::LoopBreak(_) => {
+                                // to break from a loop, we simply don't build any of the remaining
+                                // blocks – this means we will reach the end, and then exit
+                                return;
                             }
                             // todo: handle these
                             BranchMode::LoopBreakIntoMulti(_) => todo!(),
@@ -219,9 +220,17 @@ fn build_from_pos(
                 // now work out how we are supposed to branch to the next instruction and apply it
                 if let Some(mode) = can_branch_to.from_relooper.get(&destination.as_u32()) {
                     match mode {
-                        BranchMode::LoopBreak(id) => {
-                            let seq_id = t.loop_to_block.get(id).unwrap();
-                            builder.br_if(*seq_id);
+                        BranchMode::LoopBreak(_) => {
+                            builder.if_else(
+                                None,
+                                |_then| {
+                                    // don't do anything, so that if we hit this branch, the loop will
+                                    // then immediately exit
+                                },
+                                |alt| {
+                                    build_from_pos(t, alt, can_branch_to);
+                                },
+                            );
                         }
                         BranchMode::LoopBreakIntoMulti(_) => todo!(),
                         BranchMode::LoopContinue(_) => todo!(),
