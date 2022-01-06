@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, thread};
 
 use cranelift_codegen::{
     binemit::{NullStackMapSink, NullTrapSink},
@@ -11,7 +11,7 @@ use cranelift_module::Module;
 
 use cranelift_reader::parse_functions;
 use walrus::ModuleConfig;
-use wasmtime::{Engine, Instance, Store, WasmParams, WasmResults};
+use wasmtime::{Config, Engine, Instance, Store, WasmParams, WasmResults};
 
 use crate::WasmModule;
 
@@ -178,6 +178,9 @@ fn test_simple_control_flow() {
     );
 }
 
+/// Runs a test from a file.
+///
+/// Note that this will fail if the file takes longer than three seconds to run!
 fn test_from_file<Params: WasmParams, Return: WasmResults + std::fmt::Debug + Clone>(
     params: Params,
     file: impl AsRef<Path>,
@@ -210,14 +213,23 @@ fn test_from_file<Params: WasmParams, Return: WasmResults + std::fmt::Debug + Cl
     }
 
     let wasm = module.emit();
-    let engine = Engine::default();
+    let engine = Engine::new(Config::new().interruptable(true)).unwrap();
     let module = wasmtime::Module::new(&engine, wasm).unwrap();
     let mut store = Store::new(&engine, ());
+
+    let interrupt_handle = store.interrupt_handle().unwrap();
+
     let instance = Instance::new(&mut store, &module, &[]).unwrap();
     let func = instance
         .get_func(&mut store, "func_name")
         .expect("function not defined!");
     let func = func.typed::<Params, Return, _>(&store).unwrap();
+
+    thread::spawn(move || {
+        thread::sleep(std::time::Duration::from_secs(3));
+        interrupt_handle.interrupt();
+    });
+
     let ret = func.call(&mut store, params).unwrap();
     assert!(
         (check)(ret.clone()),
@@ -255,6 +267,10 @@ fn test_fibonacci_from_file() {
 
     test_from_file(0, "src/filetests/wasmtime/fib.clif", |out: i32| {
         out == fib(0)
+    });
+
+    test_from_file(3, "src/filetests/wasmtime/fib.clif", |out: i32| {
+        out == fib(3)
     });
 }
 
