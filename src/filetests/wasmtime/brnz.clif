@@ -1,0 +1,13 @@
+function %brnz(b1) -> i32 {
+block0(v0: b1):
+    brnz v0, block1
+    jump block2
+
+block1:
+    v1 = iconst.i32 1
+    return v1
+
+block2:
+    v2 = iconst.i32 2
+    return v2
+}

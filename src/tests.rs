@@ -141,12 +141,6 @@ fn test_simple_binop() {
 }
 
 #[test]
-/// Test that it is possible to declare and use some data.
-fn test_simple_data_decl() {
-    todo!()
-}
-
-#[test]
 /// Test some basic usage of the relooper algorithm.
 fn test_simple_control_flow() {
     run_test(
@@ -261,15 +255,6 @@ fn test_from_file<Params: WasmParams, Return: WasmResults + std::fmt::Debug + Cl
 }
 
 #[test]
-fn test_simple_from_file() {
-    test_from_file(
-        (12, 13),
-        "src/filetests/wasmtime/simple.clif",
-        |out: i32| out == 12 + 13,
-    )
-}
-
-#[test]
 fn test_branching_from_file() {
     test_from_file(
         (0, 13),
@@ -289,13 +274,15 @@ fn test_fibonacci_from_file() {
         }
     }
 
-    // test_from_file(0, "src/filetests/wasmtime/fib.clif", |out: i32| {
-    //     out == fib(0)
-    // });
+    test_from_file(0, "src/filetests/wasmtime/fib.clif", |out: i32| {
+        out == fib(0)
+    });
 
     test_from_file(3, "src/filetests/wasmtime/fib.clif", |out: i32| {
         out == fib(3)
     });
+
+    // todo: higher numbers are currently failing
 }
 
 #[test]
@@ -310,16 +297,85 @@ fn test_basic_loop() {
     })
 }
 
-#[test]
-fn test_i32_eq() {
-    test_from_file(
-        (12, 12),
-        "src/filetests/wasmtime/icmp/eq/i32.clif",
-        |res: i32| -> bool { res == 1 },
-    );
-    test_from_file(
-        (12, 13),
-        "src/filetests/wasmtime/icmp/eq/i32.clif",
-        |res: i32| -> bool { res == 0 },
-    );
+mod ops {
+    mod arithmetic {
+        use crate::tests::test_from_file;
+
+        #[test]
+        fn test_iadd_i32() {
+            test_from_file(
+                (12, 13),
+                "src/filetests/wasmtime/iadd_i32.clif",
+                |res: i32| -> bool { res == 12 + 13 },
+            );
+        }
+
+        #[test]
+        fn test_isub_i32() {
+            test_from_file(
+                (13, 13),
+                "src/filetests/wasmtime/isub_i32.clif",
+                |res: i32| -> bool { res == 13 - 13 },
+            );
+
+            test_from_file(
+                (15, 13),
+                "src/filetests/wasmtime/isub_i32.clif",
+                |res: i32| -> bool { res == 15 - 13 },
+            );
+
+            test_from_file(
+                (i32::MAX, i32::MAX - i32::MAX / 2),
+                "src/filetests/wasmtime/isub_i32.clif",
+                |res: i32| -> bool { res == i32::MAX - (i32::MAX - i32::MAX / 2) },
+            );
+        }
+    }
+
+    mod comparisons {
+        use crate::tests::test_from_file;
+
+        #[test]
+        fn test_i32_eq() {
+            test_from_file(
+                (12, 12),
+                "src/filetests/wasmtime/icmp/eq/i32.clif",
+                |res: i32| -> bool { res == 1 },
+            );
+            test_from_file(
+                (12, 13),
+                "src/filetests/wasmtime/icmp/eq/i32.clif",
+                |res: i32| -> bool { res == 0 },
+            );
+        }
+    }
+}
+
+mod control_flow {
+    use super::{enable_log, test_from_file};
+
+    #[test]
+    fn test_brnz() {
+        test_from_file(1, "src/filetests/wasmtime/brnz.clif", |res: i32| -> bool {
+            res == 1
+        });
+        test_from_file(0, "src/filetests/wasmtime/brnz.clif", |res: i32| -> bool {
+            res == 2
+        });
+    }
+
+    #[test]
+    fn test_cond_br() {
+        enable_log();
+        test_from_file(
+            (1i64, 1i64),
+            "src/filetests/wasmtime/condbr.clif",
+            |res: i64| -> bool { res == 1 },
+        );
+        test_from_file(
+            (1i64, 2i64),
+            "src/filetests/wasmtime/condbr.clif",
+            |res: i64| -> bool { res == 2 },
+        );
+    }
 }
