@@ -347,6 +347,11 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
                         }
                     }
 
+                    log::trace!(
+                        "computed blocks that can be branched to with a label: {:#?}",
+                        locally_computed
+                    );
+
                     build_wasm_block(
                         Block::from_u32(simple.label),
                         self,

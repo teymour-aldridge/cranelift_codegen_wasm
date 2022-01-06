@@ -80,6 +80,7 @@ impl OperandTable {
             let def = match cursor.data_flow_graph().value_def(*value) {
                 ir::ValueDef::Result(inst, _) => inst,
                 ir::ValueDef::Param(block, _) => {
+                    log::trace!("got an argument for {:#?}", block);
                     let ty = cursor.data_flow_graph().value_type(*value);
                     let ty = wasm_of_cranelift(ty);
                     let local = module.add(ty);
@@ -93,6 +94,10 @@ impl OperandTable {
                             map.insert(*value, local);
                             map
                         });
+                    log::trace!(
+                        "entries for block now looks like: {:#?}",
+                        block_params.get(&block)
+                    );
                     continue;
                 }
             };

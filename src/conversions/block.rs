@@ -47,6 +47,7 @@ fn build_from_pos(
                 args,
                 destination,
             } => {
+                log::trace!("instruction {:#?} was a jump", next);
                 if let Some(jump_to) = t.operand_table.block_params.get(destination) {
                     log::trace!(
                         "obtained table of cranelift<->wasm correspondence: {:?}",
@@ -78,34 +79,38 @@ fn build_from_pos(
                             builder
                                 .i32_const(destination.as_u32() as i32)
                                 .local_set(*local);
-                            return;
                         }
                     }
-                }
-
-                let mode = if let Some(b) = can_branch_to.from_relooper.get(&destination.as_u32()) {
-                    b
                 } else {
-                    log::trace!("could not find branching mode from relooper");
-                    // todo: is this the correct way of handling this?
-                    return;
-                };
+                    let mode =
+                        if let Some(b) = can_branch_to.from_relooper.get(&destination.as_u32()) {
+                            b
+                        } else {
+                            log::trace!("could not find branching mode from relooper");
+                            // todo: is this the correct way of handling this?
+                            return;
+                        };
 
-                log::trace!("found mode: {:#?}", mode);
+                    log::trace!("found mode: {:#?}", mode);
 
-                match mode {
-                    // todo: `LoopBreak` and `LoopContinue` are _not_ the same
-                    BranchMode::LoopBreak(id) | BranchMode::LoopContinue(id) => {
-                        // jump back to the top of the loop
-                        let seq_id = t.loop_to_block.get(&id).expect("internal error");
-                        builder.br(*seq_id);
+                    match mode {
+                        // todo: `LoopBreak` and `LoopContinue` are _not_ the same
+                        BranchMode::LoopContinue(id) => {
+                            // jump back to the top of the loop
+                            let seq_id = t.loop_to_block.get(&id).expect("internal error");
+                            builder.br(*seq_id);
+                        }
+                        BranchMode::LoopBreak(id) => {
+                            let seq_id = t.loop_to_block.get(&id).expect("internal error");
+                            builder.i32_const(1).br_if(*seq_id);
+                        }
+                        // todo: handle these
+                        BranchMode::LoopBreakIntoMulti(_) => todo!(),
+                        BranchMode::LoopContinueIntoMulti(_) => todo!(),
+                        BranchMode::MergedBranch
+                        | BranchMode::MergedBranchIntoMulti
+                        | BranchMode::SetLabelAndBreak => todo!(),
                     }
-                    // todo: handle these
-                    BranchMode::LoopBreakIntoMulti(_) => todo!(),
-                    BranchMode::LoopContinueIntoMulti(_) => todo!(),
-                    BranchMode::MergedBranch
-                    | BranchMode::MergedBranchIntoMulti
-                    | BranchMode::SetLabelAndBreak => todo!(),
                 }
             }
             ir::InstructionData::MultiAry { opcode, args } => {
@@ -126,7 +131,7 @@ fn build_from_pos(
                 args,
                 destination,
             } => {
-                log::trace!("compiling branch");
+                log::trace!("instruction {:#?} was a branch", next);
                 // note: this is needed because `br_if` will continue the loop if true
                 // we want to branch based on the truth/false-ness of the operand, so we `br_if`
                 // (i.e.) don't branch IF the condition is false, otherwise we do branch
@@ -221,7 +226,6 @@ fn build_from_pos(
                         BranchMode::LoopBreak(id) => {
                             let seq_id = t.loop_to_block.get(id).unwrap();
                             builder.br_if(*seq_id);
-                            return;
                         }
                         BranchMode::LoopBreakIntoMulti(_) => todo!(),
                         BranchMode::LoopContinue(_) => todo!(),
@@ -242,35 +246,34 @@ fn build_from_pos(
                                     build_from_pos(t, alt, can_branch_to);
                                 },
                             );
-                            return;
-                        }
-                    }
-                }
-
-                // otherwise, try switching into a multiple block
-
-                // we computed this earlier
-                let method = can_branch_to
-                    .locally_computed
-                    .get(&destination.as_u32())
-                    .unwrap();
-                if opcode == &ir::Opcode::Brz || opcode == &ir::Opcode::Brnz {
-                    match method {
-                        BranchInstr::SetLocal(label) => {
-                            builder.if_else(
-                                None,
-                                |then| {
-                                    then.i32_const(destination.as_u32() as i32)
-                                        .local_set(*label);
-                                },
-                                |alt| {
-                                    build_from_pos(t, alt, can_branch_to);
-                                },
-                            );
                         }
                     }
                 } else {
-                    panic!("operation {:#?} not yet supported", opcode)
+                    // otherwise, try switching into a multiple block
+
+                    // we computed this earlier
+                    let method = can_branch_to
+                        .locally_computed
+                        .get(&destination.as_u32())
+                        .unwrap();
+                    if opcode == &ir::Opcode::Brz || opcode == &ir::Opcode::Brnz {
+                        match method {
+                            BranchInstr::SetLocal(label) => {
+                                builder.if_else(
+                                    None,
+                                    |then| {
+                                        then.i32_const(destination.as_u32() as i32)
+                                            .local_set(*label);
+                                    },
+                                    |alt| {
+                                        build_from_pos(t, alt, can_branch_to);
+                                    },
+                                );
+                            }
+                        }
+                    } else {
+                        panic!("operation {:#?} not yet supported", opcode)
+                    }
                 }
             }
             // everything else is handled by `build_wasm_inst`

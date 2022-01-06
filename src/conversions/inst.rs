@@ -20,22 +20,32 @@ pub fn build_wasm_inst(
     builder: &mut InstrSeqBuilder,
     can_branch_to: &CanBranchTo,
 ) {
+    log::trace!("building instruction {:#?}", inst);
     match &t.cursor.func.dfg[inst].clone() {
         // operations that are unsupportable on WebAssembly
         ir::InstructionData::AtomicCas { .. } | ir::InstructionData::AtomicRmw { .. } => {
             panic!("this operation is not supported on WebAssembly")
         }
         ir::InstructionData::Binary { opcode, args } => {
+            log::trace!(
+                "instruction is a binary operation with code {:#?} and args {:#?}",
+                opcode,
+                args
+            );
             for operand in args {
+                log::trace!("translating operand {:#?}", operand);
                 translate_value(*operand, t, builder, can_branch_to);
             }
             match opcode {
                 ir::Opcode::Iadd => {
+                    log::trace!("opcode is `Iadd`");
                     let [left, _] = args;
                     let ty = t.cursor.data_flow_graph().value_type(*left);
                     if ty == ir::types::I32 {
+                        log::trace!("found ty to be i32");
                         builder.binop(BinaryOp::I32Add);
                     } else if ty == ir::types::I64 {
+                        log::trace!("found ty to be i64");
                         builder.binop(BinaryOp::I64Add);
                     } else {
                         // todo: it's not unreachable yet!
@@ -43,11 +53,14 @@ pub fn build_wasm_inst(
                     }
                 }
                 ir::Opcode::Isub => {
+                    log::trace!("opcode is `Isub`");
                     let [left, _] = args;
                     let ty = t.cursor.data_flow_graph().value_type(*left);
                     if ty == ir::types::I32 {
+                        log::trace!("found ty to be i32");
                         builder.binop(BinaryOp::I32Sub);
                     } else if ty == ir::types::I64 {
+                        log::trace!("found ty to be i64");
                         builder.binop(BinaryOp::I64Sub);
                     } else {
                         // todo: it's not unreachable yet!
@@ -65,9 +78,11 @@ pub fn build_wasm_inst(
                     assert!(ty.is_int());
                     if ty.bits() == 64 {
                         builder.i64_const(imm.bits());
+                        log::trace!("finished compiling instruction");
                         return;
                     } else if ty.bits() == 32 {
                         builder.i32_const(imm.bits() as i32);
+                        log::trace!("finished compiling instruction");
                         return;
                     }
                 } else {
@@ -166,6 +181,7 @@ pub fn build_wasm_inst(
             panic!("support for {:#?} has not yet been implemented", sth)
         }
     }
+    log::trace!("finished compiling instruction");
 }
 pub(crate) fn translate_value(
     operand: ir::Value,
@@ -181,8 +197,11 @@ pub(crate) fn translate_value(
             }
             Operand::NormalUse(val) => {
                 if let Some(local) = t.locals.get(&val) {
+                    log::trace!("{:#?} is `NormalUse` and has previously been used", val);
+                    log::trace!("retrieving {:#?} from local {:#?}", val, local);
                     builder.local_get(*local);
                 } else {
+                    log::trace!("{:#?} is `NormalUse` and has not previously been used", val);
                     let def = t.cursor.data_flow_graph().value_def(val).unwrap_inst();
                     build_wasm_inst(def, t, builder, can_branch_to);
 
@@ -192,6 +211,7 @@ pub(crate) fn translate_value(
                     });
 
                     t.locals.insert(val, arg);
+                    log::trace!("{:#?} has been assigned to local {:#?}", val, arg);
                     builder.local_set(arg);
                     builder.local_get(arg);
                 }
