@@ -239,6 +239,7 @@ impl CraneliftModule for WasmModule {
         );
 
         translator.compile_structured(&mut builder, &structured, None);
+        builder.unreachable();
 
         Ok(ModuleCompiledFunction {
             // todo: compute size correctly

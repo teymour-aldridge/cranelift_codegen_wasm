@@ -44,6 +44,20 @@ fn build_from_pos(
                 args,
                 destination,
             } => {
+                if let Some(jump_to) = t.operand_table.block_params.get(destination) {
+                    let args = args
+                        .as_slice(&t.cursor.func.dfg.value_lists)
+                        .iter()
+                        .map(|x| *x)
+                        .clone()
+                        .collect::<Vec<_>>();
+
+                    for (value, (_, local)) in args.iter().zip(jump_to.iter()) {
+                        translate_value(*value, t, builder, can_branch_to, next);
+                        builder.local_set(*local);
+                    }
+                }
+
                 if let Some(method) = can_branch_to.locally_computed.get(&destination.as_u32()) {
                     match method {
                         BranchInstr::SetLocal(local) => {
@@ -64,22 +78,6 @@ fn build_from_pos(
 
                 match mode {
                     BranchMode::LoopBreak(id) | BranchMode::LoopContinue(id) => {
-                        // not sure this is actually the correct place to be breaking to
-                        // it does seem right though (based on my reading of the relooper source
-                        // code)
-                        // todo: test this more extensively
-                        let jump_to = t.operand_table.block_params.get(destination).unwrap();
-                        let args = args
-                            .as_slice(&t.cursor.func.dfg.value_lists)
-                            .iter()
-                            .map(|x| *x)
-                            .clone()
-                            .collect::<Vec<_>>();
-                        // set all the parameters that the destination block requires
-                        for (value, (_, local)) in args.iter().zip(jump_to.iter()) {
-                            translate_value(*value, t, builder, can_branch_to, next);
-                            builder.local_set(*local);
-                        }
                         // break to the next block
                         let seq_id = t.loop_to_block.get(&id).expect("internal error");
                         builder.br(*seq_id);
@@ -96,12 +94,38 @@ fn build_from_pos(
                 args,
                 destination,
             } => {
+                if let Some(jump_to) = t.operand_table.block_params.get(destination) {
+                    let args = args
+                        .as_slice(&t.cursor.func.dfg.value_lists)
+                        .iter()
+                        .map(|x| *x)
+                        .clone()
+                        .collect::<Vec<_>>();
+                    for (value, (_, local)) in args[1..].iter().zip(jump_to.iter()) {
+                        translate_value(*value, t, builder, can_branch_to, next);
+                        builder.local_set(*local);
+                    }
+                }
+
                 // first we compute the condition
                 let arg = args.as_slice(&t.cursor.func.dfg.value_lists)[0];
-                dbg!(arg);
-                dbg!(&builder);
                 translate_value(arg, t, builder, can_branch_to, next);
-                dbg!(&builder);
+
+                if opcode == &ir::Opcode::Brz {
+                    let ty = t.cursor.data_flow_graph().value_type(arg);
+                    if ty.is_bool() {
+                    } else if ty.bits() == 64 {
+                        builder.i64_const(0);
+                        builder.binop(BinaryOp::I64Eq);
+                    } else if ty.bits() <= 32
+                    /* less than or equal because we could have a boolean */
+                    {
+                        builder.i32_const(0);
+                        builder.binop(BinaryOp::I32Eq);
+                    } else {
+                        unreachable!();
+                    };
+                }
 
                 if opcode == &ir::Opcode::Brnz {
                     let ty = t.cursor.data_flow_graph().value_type(arg);
@@ -158,20 +182,7 @@ fn build_from_pos(
                     .locally_computed
                     .get(&destination.as_u32())
                     .unwrap();
-                // todo: this is not correct – fix it
-                if let Some(jump_to) = t.operand_table.block_params.get(destination) {
-                    let args = args
-                        .as_slice(&t.cursor.func.dfg.value_lists)
-                        .iter()
-                        .map(|x| *x)
-                        .clone()
-                        .collect::<Vec<_>>();
-                    for (value, (_, local)) in args[1..].iter().zip(jump_to.iter()) {
-                        translate_value(*value, t, builder, can_branch_to, next);
-                        builder.local_set(*local);
-                    }
-                }
-                if opcode == &ir::Opcode::Brz || opcode == &ir::Opcode::Brz {
+                if opcode == &ir::Opcode::Brz || opcode == &ir::Opcode::Brnz {
                     match method {
                         BranchInstr::SetLocal(label) => {
                             builder.if_else(

@@ -240,7 +240,7 @@ fn test_branching_from_file() {
     test_from_file(
         (0, 13),
         "src/filetests/wasmtime/branching.clif",
-        |out: i32| out == 84,
+        |out: i32| out == 0,
     )
 }
 
@@ -262,12 +262,12 @@ fn test_fibonacci_from_file() {
 
 #[test]
 fn test_basic_exprs() {
-    test_from_file((), "src/filetests/expr.clif", |out: i32| out == 13);
+    test_from_file((), "src/filetests/expr.clif", |out: i32| out == 12);
 }
 
 #[test]
 fn test_basic_loop() {
-    test_from_file((), "src/filetests/loop.clif", |res: i32| -> bool {
+    test_from_file(13, "src/filetests/loop.clif", |res: i32| -> bool {
         res == 0
     })
 }
