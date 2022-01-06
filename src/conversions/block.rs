@@ -104,6 +104,18 @@ fn build_from_pos(
                 args,
                 destination,
             } => {
+                // note: this is needed because `br_if` will continue the loop if true
+                // we want to branch based on the truth/false-ness of the operand, so we `br_if`
+                // (i.e.) don't branch IF the condition is false, otherwise we do branch
+                let negate = can_branch_to
+                    .from_relooper
+                    .get(&destination.as_u32())
+                    .map(|x| match x {
+                        BranchMode::LoopBreak(_) => true,
+                        _ => false,
+                    })
+                    .unwrap_or(false);
+
                 if let Some(jump_to) = t.operand_table.block_params.get(destination) {
                     let args = args
                         .as_slice(&t.cursor.func.dfg.value_lists)
@@ -117,12 +129,31 @@ fn build_from_pos(
                     }
                 }
 
-                // first we compute the condition
                 let arg = args.as_slice(&t.cursor.func.dfg.value_lists)[0];
+                let ty = t.cursor.data_flow_graph().value_type(arg);
+
+                // if we need to, we negate
+                if negate {
+                    if ty.bits() == 64 {
+                        builder.i64_const(0);
+                    } else if ty.bits() <= 32 {
+                        builder.i32_const(0);
+                    }
+                }
+
+                // then we compute the condition
                 translate_value(arg, t, builder, can_branch_to);
 
+                // if we need to, we finish the negation
+                if negate {
+                    if ty.bits() == 64 {
+                        builder.binop(BinaryOp::I64Sub);
+                    } else {
+                        builder.binop(BinaryOp::I32Sub);
+                    }
+                }
+
                 if opcode == &ir::Opcode::Brz {
-                    let ty = t.cursor.data_flow_graph().value_type(arg);
                     if ty.is_bool() {
                     } else if ty.bits() == 64 {
                         builder.i64_const(0);
@@ -154,7 +185,6 @@ fn build_from_pos(
                 }
 
                 // now work out how we are supposed to branch to the next instruction and apply it
-
                 if let Some(mode) = can_branch_to.from_relooper.get(&destination.as_u32()) {
                     match mode {
                         BranchMode::LoopBreak(id) => {

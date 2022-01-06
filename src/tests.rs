@@ -253,11 +253,9 @@ fn test_fibonacci_from_file() {
         }
     }
 
-    for i in 1..20 {
-        test_from_file(i, "src/filetests/wasmtime/fib.clif", |out: i32| {
-            out == fib(i)
-        });
-    }
+    test_from_file(0, "src/filetests/wasmtime/fib.clif", |out: i32| {
+        out == fib(0)
+    });
 }
 
 #[test]
