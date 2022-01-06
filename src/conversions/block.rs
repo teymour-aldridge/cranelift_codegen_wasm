@@ -82,35 +82,31 @@ fn build_from_pos(
                         }
                     }
                 } else {
-                    let mode =
-                        if let Some(b) = can_branch_to.from_relooper.get(&destination.as_u32()) {
-                            b
-                        } else {
-                            log::trace!("could not find branching mode from relooper");
-                            // todo: is this the correct way of handling this?
-                            return;
-                        };
+                    if let Some(mode) = can_branch_to.from_relooper.get(&destination.as_u32()) {
+                        log::trace!("found mode: {:#?}", mode);
 
-                    log::trace!("found mode: {:#?}", mode);
-
-                    match mode {
-                        // todo: `LoopBreak` and `LoopContinue` are _not_ the same
-                        BranchMode::LoopContinue(id) => {
-                            // jump back to the top of the loop
-                            let seq_id = t.loop_to_block.get(&id).expect("internal error");
-                            builder.br(*seq_id);
+                        match mode {
+                            // todo: `LoopBreak` and `LoopContinue` are _not_ the same
+                            BranchMode::LoopContinue(id) => {
+                                // jump back to the top of the loop
+                                let seq_id = t.loop_to_block.get(&id).expect("internal error");
+                                builder.br(*seq_id);
+                            }
+                            BranchMode::LoopBreak(id) => {
+                                let seq_id = t.loop_to_block.get(&id).expect("internal error");
+                                builder.i32_const(1).br_if(*seq_id);
+                            }
+                            // todo: handle these
+                            BranchMode::LoopBreakIntoMulti(_) => todo!(),
+                            BranchMode::LoopContinueIntoMulti(_) => todo!(),
+                            BranchMode::MergedBranch
+                            | BranchMode::MergedBranchIntoMulti
+                            | BranchMode::SetLabelAndBreak => todo!(),
                         }
-                        BranchMode::LoopBreak(id) => {
-                            let seq_id = t.loop_to_block.get(&id).expect("internal error");
-                            builder.i32_const(1).br_if(*seq_id);
-                        }
-                        // todo: handle these
-                        BranchMode::LoopBreakIntoMulti(_) => todo!(),
-                        BranchMode::LoopContinueIntoMulti(_) => todo!(),
-                        BranchMode::MergedBranch
-                        | BranchMode::MergedBranchIntoMulti
-                        | BranchMode::SetLabelAndBreak => todo!(),
-                    }
+                    } else {
+                        log::trace!("could not find branching mode from relooper");
+                        // todo: is doing nothing the correct way of handling this?
+                    };
                 }
             }
             ir::InstructionData::MultiAry { opcode, args } => {
