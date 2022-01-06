@@ -27,6 +27,7 @@ pub(crate) fn build_wasm_block<'clif>(
     builder: &mut InstrSeqBuilder,
     can_branch_to: &CanBranchTo,
 ) {
+    log::trace!("building block {:?}", block);
     t.cursor.goto_top(block);
     build_from_pos(t, builder, can_branch_to);
 }
@@ -37,6 +38,8 @@ fn build_from_pos(
     can_branch_to: &CanBranchTo,
 ) {
     while let Some(next) = t.cursor.next_inst() {
+        log::trace!("building instruction: {:?}", next);
+
         match &t.cursor.func.dfg[next].clone() {
             // we handle control-flow related operations here
             InstructionData::Jump {
@@ -45,20 +48,31 @@ fn build_from_pos(
                 destination,
             } => {
                 if let Some(jump_to) = t.operand_table.block_params.get(destination) {
+                    log::trace!(
+                        "obtained table of cranelift<->wasm correspondence: {:?}",
+                        jump_to
+                    );
                     let args = args
                         .as_slice(&t.cursor.func.dfg.value_lists)
                         .iter()
                         .map(|x| *x)
                         .clone()
                         .collect::<Vec<_>>();
+                    log::trace!("args: {:#?}", args);
 
                     for (value, (_, local)) in args.iter().zip(jump_to.iter()) {
                         translate_value(*value, t, builder, can_branch_to);
                         builder.local_set(*local);
                     }
+                } else {
+                    log::trace!(
+                        "could not find table of arguments for block {:?}",
+                        destination
+                    );
                 }
 
                 if let Some(method) = can_branch_to.locally_computed.get(&destination.as_u32()) {
+                    log::trace!("found computed branching method: {:#?}", method);
                     match method {
                         BranchInstr::SetLocal(local) => {
                             builder
@@ -72,16 +86,21 @@ fn build_from_pos(
                 let mode = if let Some(b) = can_branch_to.from_relooper.get(&destination.as_u32()) {
                     b
                 } else {
+                    log::trace!("could not find branching mode from relooper");
                     // todo: is this the correct way of handling this?
                     return;
                 };
 
+                log::trace!("found mode: {:#?}", mode);
+
                 match mode {
+                    // todo: `LoopBreak` and `LoopContinue` are _not_ the same
                     BranchMode::LoopBreak(id) | BranchMode::LoopContinue(id) => {
-                        // break to the next block
+                        // jump back to the top of the loop
                         let seq_id = t.loop_to_block.get(&id).expect("internal error");
                         builder.br(*seq_id);
                     }
+                    // todo: handle these
                     BranchMode::LoopBreakIntoMulti(_) => todo!(),
                     BranchMode::LoopContinueIntoMulti(_) => todo!(),
                     BranchMode::MergedBranch
@@ -93,10 +112,13 @@ fn build_from_pos(
                 if opcode == &ir::Opcode::Return {
                     let pool = &t.cursor.data_flow_graph().value_lists;
                     let args = args.as_slice(pool).iter().map(|x| *x).collect::<Vec<_>>();
+                    log::trace!("args: {:#?}", args);
                     for arg in args {
                         translate_value(arg, t, builder, can_branch_to);
                     }
                     builder.return_();
+                } else {
+                    panic!("MultiAry {:#?} has not been implemented", opcode)
                 }
             }
             ir::InstructionData::Branch {
@@ -104,6 +126,7 @@ fn build_from_pos(
                 args,
                 destination,
             } => {
+                log::trace!("compiling branch");
                 // note: this is needed because `br_if` will continue the loop if true
                 // we want to branch based on the truth/false-ness of the operand, so we `br_if`
                 // (i.e.) don't branch IF the condition is false, otherwise we do branch
@@ -116,13 +139,21 @@ fn build_from_pos(
                     })
                     .unwrap_or(false);
 
+                log::trace!("negating: {}", negate);
+
                 if let Some(jump_to) = t.operand_table.block_params.get(destination) {
+                    log::trace!(
+                        "obtained table of cranelift<->wasm correspondence: {:?}",
+                        jump_to
+                    );
                     let args = args
                         .as_slice(&t.cursor.func.dfg.value_lists)
                         .iter()
                         .map(|x| *x)
                         .clone()
                         .collect::<Vec<_>>();
+                    log::trace!("args: {:#?}", args);
+
                     for (value, (_, local)) in args[1..].iter().zip(jump_to.iter()) {
                         translate_value(*value, t, builder, can_branch_to);
                         builder.local_set(*local);
@@ -243,7 +274,9 @@ fn build_from_pos(
                 }
             }
             // everything else is handled by `build_wasm_inst`
-            _ => (),
+            sth => {
+                log::trace!("skipping {:#?}", sth);
+            }
         }
     }
 }

@@ -169,6 +169,8 @@ impl CraneliftModule for WasmModule {
         _trap_sink: &mut dyn binemit::TrapSink,
         _stack_map_sink: &mut dyn binemit::StackMapSink,
     ) -> ModuleResult<ModuleCompiledFunction> {
+        log::trace!("started compiling function");
+
         let id = self
             .functions
             .get(&func_id)
@@ -176,6 +178,7 @@ impl CraneliftModule for WasmModule {
 
         // retrieve WebAssembly function
         let func = self.module.funcs.get_mut(*id);
+        log::trace!("found function: {:#?}", func);
         let mut builder = match func.kind {
             walrus::FunctionKind::Import(_) => unreachable!(),
             walrus::FunctionKind::Local(ref mut loc) => loc.builder_mut().func_body(),
@@ -186,6 +189,8 @@ impl CraneliftModule for WasmModule {
         let mut cursor = FuncCursor::new(&mut ctx.func);
 
         let operand_table = OperandTable::fill(&mut cursor, &mut self.module.locals);
+
+        log::trace!("computed operand table: {:#?}", operand_table);
 
         // todo: check if function is empty!
         let blocks: Vec<_> = cursor
@@ -222,6 +227,8 @@ impl CraneliftModule for WasmModule {
         let first = cursor.func.layout.entry_block().unwrap().as_u32();
 
         let structured = reloop(relooper_blocks, first);
+
+        log::trace!("recovered control flow: {:#?}", structured);
 
         let (mut block_to_seq, mut loop_to_block, mut multi_to_block) =
             (Default::default(), Default::default(), Default::default());
@@ -322,10 +329,12 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
         label: Option<LocalId>,
         next_exists: bool,
     ) {
+        log::trace!("compiling structured: {:#?}", structured);
         match structured {
             // a straight-line sequence of blocks
             // we just translate each one in turn
             ShapedBlock::Simple(simple) => {
+                log::trace!("structured was a simple block: {:#?}", simple);
                 if let Some(ref immediate) = simple.immediate {
                     let local = self.module_locals.add(ValType::I32);
 
@@ -366,8 +375,11 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
                 }
             }
             ShapedBlock::Loop(l) => {
+                log::trace!("structured was a loop: {:#?}", l);
+
                 builder.loop_(None, |builder: &mut InstrSeqBuilder| {
                     self.loop_to_block.insert(l.loop_id, builder.id());
+                    log::trace!("added `{:?}={:?}`", l.loop_id, builder.id());
                     self.compile_structured(builder, &l.inner, None, has_next(&l.inner));
                 });
 
@@ -377,6 +389,8 @@ impl<'clif> IndividualFunctionTranslator<'clif> {
             }
             // `match`/`if` + `else if` chain
             ShapedBlock::Multiple(m) => {
+                log::trace!("structured was a multiple block: {:#?}", m);
+
                 // note: `HandledBlock::break_after` means "can this entry reach another entry"
 
                 let label = label.unwrap();
