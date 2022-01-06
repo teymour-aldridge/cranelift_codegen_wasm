@@ -269,3 +269,17 @@ fn test_basic_loop() {
         res == 0
     })
 }
+
+#[test]
+fn test_i32_eq() {
+    test_from_file(
+        (12, 12),
+        "src/filetests/wasmtime/icmp/eq/i32.clif",
+        |res: i32| -> bool { res == 1 },
+    );
+    test_from_file(
+        (12, 13),
+        "src/filetests/wasmtime/icmp/eq/i32.clif",
+        |res: i32| -> bool { res == 0 },
+    );
+}

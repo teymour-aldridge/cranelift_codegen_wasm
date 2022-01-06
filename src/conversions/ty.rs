@@ -22,5 +22,10 @@ pub(crate) fn wasm_of_cranelift(ty: CraneliftType) -> ValType {
         return ValType::F64;
     }
 
+    // todo: is this correct?
+    if ty.is_bool() {
+        return ValType::I32;
+    }
+
     todo!()
 }

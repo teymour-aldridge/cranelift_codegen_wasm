@@ -1,0 +1,5 @@
+function %icmp_eq_i32(i32, i32) -> b1 {
+block0(v0: i32, v1: i32):
+    v2 = icmp eq v0, v1
+    return v2
+}
