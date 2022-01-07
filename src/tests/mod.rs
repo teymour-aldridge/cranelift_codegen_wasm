@@ -1,98 +1,17 @@
-use std::{fmt, path::Path, thread};
-
-use cranelift_codegen::{
-    binemit::{NullStackMapSink, NullTrapSink},
-    ir::{self, condcodes::IntCC, AbiParam, InstBuilder},
-    isa::CallConv,
-    Context,
-};
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-use cranelift_module::Module;
-use cranelift_reader::parse_functions;
-use log::LevelFilter;
-use log4rs::{
-    append::file::FileAppender,
-    config::{Appender, Logger, Root},
-    encode::pattern::PatternEncoder,
-};
+use cranelift_codegen::ir;
+use cranelift_codegen::ir::condcodes::IntCC;
+use cranelift_codegen::ir::AbiParam;
+use cranelift_codegen::ir::InstBuilder;
+use cranelift_codegen::isa::CallConv;
+use cranelift_frontend::Variable;
 use rusty_fork::rusty_fork_test;
-use walrus::ModuleConfig;
-use wasmtime::{Config, Engine, Instance, Store, WasmParams, WasmResults};
 
-use crate::WasmModule;
+use crate::tests::utils::enable_log;
+use crate::tests::utils::run_test;
 
-fn enable_log(unique: impl fmt::Display) {
-    let output = FileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
-        .build(format!("log/output-{}.log", unique))
-        .unwrap();
-    let config = log4rs::config::Config::builder()
-        .appender(Appender::builder().build("logs", Box::new(output)))
-        .logger(
-            Logger::builder()
-                .appender("logs")
-                .build("logs", LevelFilter::Trace),
-        )
-        .build(Root::builder().appender("logs").build(LevelFilter::Trace))
-        .unwrap();
-    log4rs::init_config(config).unwrap();
-}
-fn run_test<Params: WasmParams, Return: WasmResults + std::fmt::Debug + Clone>(
-    params: Params,
-    sig: ir::Signature,
-    build: impl FnOnce(&mut FunctionBuilder),
-    check: impl FnOnce(Return) -> bool,
-) {
-    // todo: correct target isa
-    let mut module = WasmModule::new(ModuleConfig::new());
+use self::utils::test_from_file;
 
-    let func_id = module
-        .declare_function("func_name", cranelift_module::Linkage::Export, &sig)
-        .unwrap();
-
-    let mut ctx = Context::new();
-    ctx.func.signature.returns = sig.returns;
-
-    let mut func_ctx = FunctionBuilderContext::new();
-    let mut builder: FunctionBuilder = FunctionBuilder::new(&mut ctx.func, &mut func_ctx);
-
-    (build)(&mut builder);
-
-    builder.finalize();
-
-    if std::env::var("PRINT_CLIF").is_ok() {
-        println!("{}", ctx.func);
-    }
-
-    module
-        .define_function(
-            func_id,
-            &mut ctx,
-            &mut NullTrapSink {},
-            &mut NullStackMapSink {},
-        )
-        .unwrap();
-
-    if std::env::var("PRINT_WAT").is_ok() {
-        println!("{}", module.emit_wat());
-    }
-
-    let wasm = module.emit();
-    let engine = Engine::default();
-    let module = wasmtime::Module::new(&engine, wasm).unwrap();
-    let mut store = Store::new(&engine, ());
-    let instance = Instance::new(&mut store, &module, &[]).unwrap();
-    let func = instance
-        .get_func(&mut store, "func_name")
-        .expect("function not defined!");
-    let func = func.typed::<Params, Return, _>(&store).unwrap();
-    let ret = func.call(&mut store, params).unwrap();
-    assert!(
-        (check)(ret.clone()),
-        "assertion failed\nnote: the return value was {:#?}",
-        &ret
-    )
-}
+mod utils;
 
 #[test]
 /// Test that a function which returns only a simple constant can be compiled.
@@ -194,66 +113,6 @@ fn test_simple_control_flow() {
     );
 }
 
-/// Runs a test from a file.
-///
-/// Note that this will fail if the file takes longer than three seconds to run!
-fn test_from_file<Params: WasmParams, Return: WasmResults + std::fmt::Debug + Clone>(
-    params: Params,
-    file: impl AsRef<Path>,
-    check: impl FnOnce(Return) -> bool,
-) {
-    let file = ezio::file::read(file);
-
-    let funcs = parse_functions(&file).unwrap();
-
-    let func = funcs[0].clone();
-
-    let mut module = WasmModule::new(ModuleConfig::new());
-
-    let id = module
-        .declare_function(
-            "func_name",
-            cranelift_module::Linkage::Export,
-            &func.signature,
-        )
-        .unwrap();
-    let mut ctx = Context::new();
-    ctx.func = func;
-
-    module
-        .define_function(id, &mut ctx, &mut NullTrapSink {}, &mut NullStackMapSink {})
-        .expect("failed to define function");
-
-    if std::env::var("PRINT_WAT").is_ok() {
-        println!("{}", module.emit_wat());
-    }
-
-    let wasm = module.emit();
-    let engine = Engine::new(Config::new().interruptable(true)).unwrap();
-    let module = wasmtime::Module::new(&engine, wasm).unwrap();
-    let mut store = Store::new(&engine, ());
-
-    let interrupt_handle = store.interrupt_handle().unwrap();
-
-    let instance = Instance::new(&mut store, &module, &[]).unwrap();
-    let func = instance
-        .get_func(&mut store, "func_name")
-        .expect("function not defined!");
-    let func = func.typed::<Params, Return, _>(&store).unwrap();
-
-    thread::spawn(move || {
-        thread::sleep(std::time::Duration::from_secs(3));
-        interrupt_handle.interrupt();
-    });
-
-    let ret = func.call(&mut store, params).unwrap();
-    assert!(
-        (check)(ret.clone()),
-        "assertion failed\nnote: the return value was {:#?}",
-        &ret
-    );
-}
-
 #[test]
 fn test_branching_from_file() {
     test_from_file(
@@ -264,27 +123,27 @@ fn test_branching_from_file() {
 }
 
 rusty_fork_test! {
-#[test]
-fn test_fibonacci_from_file() {
-    enable_log("test_fibonacci_from_file");
+    #[test]
+    fn test_fibonacci_from_file() {
+        enable_log("test_fibonacci_from_file");
 
-    fn fib(n: i32) -> i32 {
-        match n {
-            0 | 1 | 2 => 1,
-            n => fib(n - 1) + fib(n - 2),
+        fn fib(n: i32) -> i32 {
+            match n {
+                0 | 1 | 2 => 1,
+                n => fib(n - 1) + fib(n - 2),
+            }
         }
+
+        test_from_file(0, "src/filetests/wasmtime/fib.clif", |out: i32| {
+            out == fib(0)
+        });
+
+        test_from_file(3, "src/filetests/wasmtime/fib.clif", |out: i32| {
+            out == fib(3)
+        });
+
+        // todo: higher numbers are currently failing
     }
-
-    test_from_file(0, "src/filetests/wasmtime/fib.clif", |out: i32| {
-        out == fib(0)
-    });
-
-    test_from_file(3, "src/filetests/wasmtime/fib.clif", |out: i32| {
-        out == fib(3)
-    });
-
-    // todo: higher numbers are currently failing
-}
 }
 
 #[test]
@@ -354,6 +213,8 @@ mod ops {
 }
 
 mod control_flow {
+    use rusty_fork::rusty_fork_test;
+
     use super::{enable_log, test_from_file};
 
     #[test]
@@ -379,5 +240,19 @@ mod control_flow {
             "src/filetests/wasmtime/condbr-i32.clif",
             |res: i32| -> bool { res == 2 },
         );
+    }
+
+    rusty_fork_test! {
+        #[test]
+        fn test_control_flow() {
+            enable_log("test_control_flow");
+            test_from_file(
+                14,
+                "src/filetests/control-flow.clif",
+                |res: i32| {
+                    res == 0
+                }
+            );
+        }
     }
 }

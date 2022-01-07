@@ -253,14 +253,12 @@ fn build_from_pos(
                             );
                         }
                     }
-                } else {
+                } else if let Some(method) =
+                    can_branch_to.locally_computed.get(&destination.as_u32())
+                {
                     // otherwise, try switching into a multiple block
 
                     // we computed this earlier
-                    let method = can_branch_to
-                        .locally_computed
-                        .get(&destination.as_u32())
-                        .unwrap();
                     if opcode == &ir::Opcode::Brz || opcode == &ir::Opcode::Brnz {
                         match method {
                             BranchInstr::SetLocal(label) => {
