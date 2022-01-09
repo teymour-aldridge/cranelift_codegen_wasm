@@ -141,8 +141,11 @@ rusty_fork_test! {
         test_from_file(3, "src/filetests/wasmtime/fib.clif", |out: i32| {
             out == fib(3)
         });
-
         // todo: higher numbers are currently failing
+
+        // test_from_file(15, "src/filetests/wasmtime/fib.clif", |out: i32| {
+        //     out == fib(15)
+        // });
     }
 }
 
@@ -225,6 +228,38 @@ mod control_flow {
         test_from_file(0, "src/filetests/wasmtime/brnz.clif", |res: i32| -> bool {
             res == 2
         });
+    }
+
+    #[test]
+    fn test_brz() {
+        test_from_file(0, "src/filetests/wasmtime/brz.clif", |res: i32| -> bool {
+            res == 1
+        });
+        test_from_file(1, "src/filetests/wasmtime/brz.clif", |res: i32| -> bool {
+            res == 0
+        });
+    }
+
+    #[test]
+    fn test_fallthrough() {
+        test_from_file(
+            42,
+            "src/filetests/wasmtime/control.clif",
+            |res: i32| -> bool { res == 42 },
+        );
+    }
+
+    rusty_fork_test! {
+        #[test]
+        fn test_loop_2() {
+            enable_log("test_loop_2");
+            test_from_file(1, "src/filetests/loop2.clif", |res: i32| -> bool {
+                res == 100
+            });
+            test_from_file(15, "src/filetests/loop2.clif", |res: i32| -> bool {
+                res == 1
+            });
+        }
     }
 
     #[test]

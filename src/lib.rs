@@ -228,6 +228,8 @@ impl CraneliftModule for WasmModule {
             relooper_blocks.push((block.as_u32(), branches))
         }
 
+        log::trace!("generated relooper input: {:#?}", relooper_blocks);
+
         let first = cursor.func.layout.entry_block().unwrap().as_u32();
 
         let structured = reloop(relooper_blocks, first);

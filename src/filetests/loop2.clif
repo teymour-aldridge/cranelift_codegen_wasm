@@ -1,0 +1,21 @@
+function %loop(i32) -> i32 {
+block0(v0: i32):
+  v1 = iadd_imm v0, -1
+  v2 = iconst.i32 16
+  v3 = iconst.i32 32
+  brz v1, block1(v1, v2, v3)
+  jump block3
+
+block1(v4: i32, v5: i32, v6: i32):
+  brz v5, block2
+  v7 = iadd_imm v5, -2
+  jump block1(v4, v7, v6)
+
+block2:
+  v8 = iconst.i32 100
+  return v8
+
+block3:
+  v9 = iconst.i32 1
+  return v9
+}
