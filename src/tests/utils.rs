@@ -1,4 +1,3 @@
-use std::fmt;
 use std::{path::Path, thread};
 
 use cranelift_codegen::binemit::{NullStackMapSink, NullTrapSink};
@@ -7,31 +6,20 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::Module;
 use cranelift_reader::parse_functions;
 use log::LevelFilter;
-use log4rs::{
-    append::file::FileAppender,
-    config::{Appender, Logger, Root},
-    encode::pattern::PatternEncoder,
-};
 use walrus::ModuleConfig;
 use wasmtime::{Config, Engine, Instance, Store, WasmParams, WasmResults};
 
 use crate::WasmModule;
 
-pub(crate) fn enable_log(unique: impl fmt::Display) {
-    let output = FileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
-        .build(format!("log/output-{}.log", unique))
-        .unwrap();
-    let config = log4rs::config::Config::builder()
-        .appender(Appender::builder().build("logs", Box::new(output)))
-        .logger(
-            Logger::builder()
-                .appender("logs")
-                .build("logs", LevelFilter::Trace),
-        )
-        .build(Root::builder().appender("logs").build(LevelFilter::Trace))
-        .unwrap();
-    log4rs::init_config(config).unwrap();
+pub(crate) fn enable_log() {
+    if std::env::var("ENABLE_DETAILED_CRANELIFT_LOGGING").is_err() {
+        env_logger::Builder::new()
+            .filter(Some("cranelift_module"), LevelFilter::Warn)
+            .filter(Some("cranelift_codegen"), LevelFilter::Warn)
+            .init();
+    } else {
+        env_logger::init()
+    }
 }
 
 pub(crate) fn run_test<Params: WasmParams, Return: WasmResults + std::fmt::Debug + Clone>(

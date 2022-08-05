@@ -125,7 +125,7 @@ fn test_branching_from_file() {
 rusty_fork_test! {
     #[test]
     fn test_fibonacci_from_file() {
-        enable_log("test_fibonacci_from_file");
+        enable_log();
 
         fn fib(n: i32) -> i32 {
             match n {
@@ -252,7 +252,7 @@ mod control_flow {
     rusty_fork_test! {
         #[test]
         fn test_loop_2() {
-            enable_log("test_loop_2");
+            enable_log();
             test_from_file(1, "src/filetests/loop2.clif", |res: i32| -> bool {
                 res == 100
             });
@@ -264,7 +264,7 @@ mod control_flow {
 
     #[test]
     fn test_cond_br() {
-        enable_log("test_cond_br");
+        enable_log();
         test_from_file(
             (1, 1),
             "src/filetests/wasmtime/condbr-i32.clif",
@@ -280,7 +280,7 @@ mod control_flow {
     rusty_fork_test! {
         #[test]
         fn test_control_flow() {
-            enable_log("test_control_flow");
+            enable_log();
             test_from_file(
                 14,
                 "src/filetests/control-flow.clif",
