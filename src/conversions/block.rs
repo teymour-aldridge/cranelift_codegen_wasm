@@ -106,7 +106,8 @@ fn build_from_pos(
                         }
                     } else {
                         log::trace!("could not find branching mode from relooper");
-                        // todo: is doing nothing the correct way of handling this?
+                        // todo: is doing nothing the correct way of handling
+                        // this?
                     };
                 }
             }
@@ -217,14 +218,16 @@ fn build_from_pos(
                     };
                 }
 
-                // now work out how we are supposed to branch to the next instruction and apply it
+                // now work out how we are supposed to branch to the next instruction and apply
+                // it
                 if let Some(mode) = can_branch_to.from_relooper.get(&destination.as_u32()) {
                     match mode {
                         BranchMode::LoopBreak(_) => {
                             builder.if_else(
                                 None,
                                 |_then| {
-                                    // don't do anything, so that if we hit this branch, the loop will
+                                    // don't do anything, so that if we hit this
+                                    // branch, the loop will
                                     // then immediately exit
                                 },
                                 |alt| {

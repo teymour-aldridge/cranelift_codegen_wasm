@@ -12,15 +12,17 @@ use crate::conversions::ty::wasm_of_cranelift;
 /// Thanks to Chris Fallin for the suggestion
 /// https://github.com/bytecodealliance/wasmtime/issues/2566#issuecomment-1003604703
 pub(crate) enum Operand {
-    /// We are the only use of the operator (so we can just push this onto the stack).
+    /// We are the only use of the operator (so we can just push this onto the
+    /// stack).
     SingleUse(ir::Value),
-    /// We are _not_ the only use of the operator, so we generate this in a local at its original
-    /// location (and we then use the local).
+    /// We are _not_ the only use of the operator, so we generate this in a
+    /// local at its original location (and we then use the local).
     ///
-    /// The [cranelift_codegen::ir::Inst] is the instruction where this function is defined.
+    /// The [cranelift_codegen::ir::Inst] is the instruction where this function
+    /// is defined.
     NormalUse(ir::Value),
-    /// Even though the value might be used multiple times, we never store it in a local (e.g. for
-    /// operators such as `<ty>.const sth`).
+    /// Even though the value might be used multiple times, we never store it in
+    /// a local (e.g. for operators such as `<ty>.const sth`).
     Rematerialise(ir::Value),
 }
 
@@ -60,8 +62,8 @@ pub struct OperandTable {
 }
 
 impl OperandTable {
-    /// Computes the role of every [cranelift_codegen::ir::Value] in the provided program, and adds
-    /// it to this table.
+    /// Computes the role of every [cranelift_codegen::ir::Value] in the
+    /// provided program, and adds it to this table.
     pub(crate) fn fill(cursor: &mut FuncCursor, module: &mut ModuleLocals) -> OperandTable {
         let mut value_uses: FnvHashMap<_, _> = Default::default();
         let mut rematerialize: FnvHashSet<_> = Default::default();

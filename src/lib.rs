@@ -55,15 +55,16 @@ pub struct WasmModule {
 impl WasmModule {
     /// Constructs a new WebAssembly module.
     ///
-    /// todo: check the target isa (or maybe don't take it as a parameter, and generate it instead)
+    /// todo: check the target isa (or maybe don't take it as a parameter, and
+    /// generate it instead)
     pub fn new(config: ModuleConfig) -> Self {
         // if !matches!(
         //     isa.triple().binary_format,
         //     target_lexicon::BinaryFormat::Wasm
         // ) {
         //     panic!(
-        //         "only WebAssembly is supported! for other targets, you may want to look at
-        //     `cranelift_object`."
+        //         "only WebAssembly is supported! for other targets, you may want to
+        // look at     `cranelift_object`."
         //     )
         // }
 
@@ -81,8 +82,8 @@ impl WasmModule {
         }
     }
 
-    /// Emit the module as it stands as a series of bytes (which can be interpreted as a
-    /// WebAssembly module).
+    /// Emit the module as it stands as a series of bytes (which can be
+    /// interpreted as a WebAssembly module).
     pub fn emit(&mut self) -> Vec<u8> {
         self.module.emit_wasm()
     }
@@ -204,8 +205,8 @@ impl CraneliftModule for WasmModule {
             .map(|block| block.clone())
             .collect();
 
-        // note: the relooper crate does not have much documentation, but the original Emscripten
-        // paper explains it quite well: https://dl.acm.org/doi/10.1145/2048147.2048224
+        // note: the relooper crate does not have much documentation, but the original
+        // Emscripten paper explains it quite well: https://dl.acm.org/doi/10.1145/2048147.2048224
         // also available at https://github.com/emscripten-core/emscripten/blob/main/docs/paper.pdf
         let mut relooper_blocks = Vec::new();
 
@@ -305,8 +306,9 @@ impl CraneliftModule for WasmModule {
 pub struct IndividualFunctionTranslator<'clif> {
     /// The Walrus module to which we are emitting WebAssembly.
     module_locals: &'clif mut ModuleLocals,
-    /// The cursor which we are using to query useful relevant information from Cranelift about the
-    /// nature of the IR with which we are being provided.
+    /// The cursor which we are using to query useful relevant information from
+    /// Cranelift about the nature of the IR with which we are being
+    /// provided.
     cursor: &'clif mut FuncCursor<'clif>,
     // todo: is this one even needed?
     #[allow(unused)]

@@ -11,9 +11,10 @@ use super::block::CanBranchTo;
 
 /// Converts a Cranelift instruction into the corresponding WebAssembly.
 ///
-/// note: this function translates only operations that (a) have a Wasm representation (operations
-/// that require a multithreaded environment are not translated) and (b) do not require any control
-/// flow (so jumps and branches are handled seperately).
+/// note: this function translates only operations that (a) have a Wasm
+/// representation (operations that require a multithreaded environment are not
+/// translated) and (b) do not require any control flow (so jumps and branches
+/// are handled seperately).
 pub fn build_wasm_inst(
     inst: ir::Inst,
     t: &mut IndividualFunctionTranslator<'_>,
